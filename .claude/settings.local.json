@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/Users/pwnof/Documents/rpg-test remote -v)",
+      "Bash(git -C /c/Users/pwnof/Documents/rpg-test remote add origin https://github.com/pwnofprophecy/rpg-test.git)"
+    ]
+  }
+}

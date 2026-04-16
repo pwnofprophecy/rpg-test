@@ -1,0 +1,50 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="1"]
+[ext_resource type="Texture2D" path="res://assets/sprites/grass_tile.svg" id="2"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_top"]
+size = Vector2(1152, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_bottom"]
+size = Vector2(1152, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_left"]
+size = Vector2(16, 648)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_right"]
+size = Vector2(16, 648)
+
+[node name="Main" type="Node2D"]
+
+[node name="Background" type="TextureRect" parent="."]
+texture = ExtResource("2")
+offset_right = 1152.0
+offset_bottom = 648.0
+stretch_mode = 1
+texture_repeat = 1
+
+[node name="Borders" type="Node2D" parent="."]
+
+[node name="TopWall" type="StaticBody2D" parent="Borders"]
+position = Vector2(576, -8)
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/TopWall"]
+shape = SubResource("RectangleShape2D_top")
+
+[node name="BottomWall" type="StaticBody2D" parent="Borders"]
+position = Vector2(576, 656)
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/BottomWall"]
+shape = SubResource("RectangleShape2D_bottom")
+
+[node name="LeftWall" type="StaticBody2D" parent="Borders"]
+position = Vector2(-8, 324)
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/LeftWall"]
+shape = SubResource("RectangleShape2D_left")
+
+[node name="RightWall" type="StaticBody2D" parent="Borders"]
+position = Vector2(1160, 324)
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/RightWall"]
+shape = SubResource("RectangleShape2D_right")
+
+[node name="Player" parent="." instance=ExtResource("1")]
+position = Vector2(576, 324)

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Base grass -->
+  <rect width="64" height="64" fill="#4a8c3f"/>
+  <!-- Subtle darker patches -->
+  <ellipse cx="12" cy="10" rx="8" ry="6" fill="#3d7a34" opacity="0.6"/>
+  <ellipse cx="50" cy="20" rx="10" ry="7" fill="#3d7a34" opacity="0.5"/>
+  <ellipse cx="30" cy="50" rx="12" ry="7" fill="#3d7a34" opacity="0.5"/>
+  <ellipse cx="8" cy="48" rx="7" ry="5" fill="#56a348" opacity="0.5"/>
+  <ellipse cx="55" cy="52" rx="6" ry="5" fill="#56a348" opacity="0.4"/>
+  <!-- Lighter highlights -->
+  <ellipse cx="38" cy="12" rx="5" ry="4" fill="#5cb84e" opacity="0.5"/>
+  <ellipse cx="18" cy="34" rx="6" ry="4" fill="#5cb84e" opacity="0.4"/>
+  <!-- Grass blades -->
+  <line x1="10" y1="22" x2="8"  y2="17" stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="12" y1="22" x2="13" y2="16" stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="44" y1="36" x2="42" y2="30" stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="46" y1="36" x2="47" y2="30" stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="24" y1="56" x2="22" y2="50" stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="26" y1="56" x2="27" y2="50" stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="56" y1="10" x2="54" y2="4"  stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="58" y1="10" x2="59" y2="4"  stroke="#3a6e32" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
