@@ -27,10 +27,10 @@ texture = ExtResource("4")
 script = ExtResource("2")
 
 [node name="PlayerHealthBar" type="VBoxContainer" parent="BattleUI"]
-offset_left = 60.0
-offset_top = 330.0
-offset_right = 260.0
-offset_bottom = 390.0
+offset_left = 300.0
+offset_top = 340.0
+offset_right = 500.0
+offset_bottom = 400.0
 
 [node name="NameLabel" type="Label" parent="BattleUI/PlayerHealthBar"]
 layout_mode = 2
@@ -45,10 +45,10 @@ value = 10.0
 show_percentage = false
 
 [node name="EnemyHealthBar" type="VBoxContainer" parent="BattleUI"]
-offset_left = 780.0
-offset_top = 80.0
-offset_right = 980.0
-offset_bottom = 140.0
+offset_left = 640.0
+offset_top = 100.0
+offset_right = 840.0
+offset_bottom = 160.0
 
 [node name="NameLabel" type="Label" parent="BattleUI/EnemyHealthBar"]
 layout_mode = 2
