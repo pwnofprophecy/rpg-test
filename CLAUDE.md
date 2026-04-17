@@ -12,24 +12,42 @@ A 2D RPG game built with Godot 4.6 (GDScript).
 ## Project Structure Conventions
 ```
 res://
-├── scenes/         # .tscn scene files, organized by feature
-│   ├── player/
-│   ├── enemies/
-│   ├── ui/
-│   └── world/
-├── scripts/        # Standalone .gd scripts not attached to a scene
+├── scenes/
+│   ├── main.tscn        # Root SceneManager — swaps worlds in/out at runtime
+│   ├── main.gd
+│   ├── player/          # Player scenes/scripts (shared between worlds where applicable)
+│   ├── real_world/      # All Real World (house) scenes: rooms, floors, interactables
+│   ├── rpg/             # All RPG scenes: overworld, shell, battle, towns, dungeons
+│   └── battle/          # Legacy — will be merged into scenes/rpg/ in Phase 2
+├── scripts/             # Standalone .gd scripts not attached to a scene
 ├── assets/
-│   ├── sprites/    # .png sprite sheets and individual sprites
-│   ├── audio/      # .ogg / .wav files
+│   ├── sprites/         # .png / .svg sprite sheets and individual sprites
+│   ├── audio/           # .ogg / .wav files
 │   └── fonts/
-├── autoloads/      # Singleton scripts (registered in Project Settings)
-└── resources/      # .tres custom Resource files (stats, items, etc.)
+├── autoloads/           # Singleton scripts — registered under [autoload] in project.godot
+│   ├── game_manager.gd  # Tracks current world + progression flags
+│   ├── mod_manager.gd   # Manages all mods (found/active state, signals)
+│   └── save_system.gd   # Save/load persistent game state
+└── resources/           # .tres custom Resource files (stats, items, etc.)
 ```
+
+## Two-World Architecture
+The game is split across two "worlds":
+- **Real World** (`scenes/real_world/`) — a top-down house the player explores
+- **RPG** (`scenes/rpg/`) — the game-within-a-game accessed via the PC
+
+The SceneManager (`scenes/main.gd`) is the root scene and swaps between them based on `GameManager.current_world`. Autoloads persist across world switches, so global state survives transitions.
+
+## Autoloads
+Three singletons are registered in `project.godot`:
+- **GameManager** — current world, progression flags, world-switching API (`switch_to_world`, `toggle_world`)
+- **ModManager** — mod registry with `found` / `active` state, emits `mod_found` / `mod_activated` / `mod_deactivated` signals
+- **SaveSystem** — save/load API (stub until Phase 2+)
 
 ## Coding Conventions
 - Use `class_name` declarations for scripts that are reused across scenes.
 - Prefer signals over direct node references for loose coupling between systems.
-- Autoloads (singletons) for global state: `GameManager`, `AudioManager`, etc.
+- Autoloads (singletons) for global state — see "Autoloads" section above. Reference them by their registered name (e.g. `GameManager.switch_to_world(...)`).
 - Use `@export` variables for designer-tunable values.
 - Snake_case for variables and functions; PascalCase for class names and node names.
 - Keep scene scripts focused — split large scripts into composable child nodes.
@@ -45,3 +63,9 @@ res://
 - Don't use `get_node()` string paths when `@onready` + typed references work.
 - Don't use `_process()` for things that only need to run on state changes — use signals.
 - Avoid binary `.scn` files; keep scenes as `.tscn` for version control readability.
+- Don't use git worktrees — work directly on the main repository.
+
+## Communication Style
+- The user is a novice — explain what you're doing and why in detail as you work.
+- When writing code, explain the purpose of new scripts, functions, and patterns.
+- When modifying existing code, explain what changed and how it fits into the bigger picture.

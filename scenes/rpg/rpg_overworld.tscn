@@ -15,7 +15,7 @@ size = Vector2(16, 648)
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_right"]
 size = Vector2(16, 648)
 
-[node name="Main" type="Node2D"]
+[node name="RpgOverworld" type="Node2D"]
 
 [node name="Background" type="TextureRect" parent="."]
 texture = ExtResource("2")
