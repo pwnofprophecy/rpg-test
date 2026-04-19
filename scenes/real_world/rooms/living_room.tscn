@@ -4,16 +4,16 @@
 [ext_resource type="Script" uid="uid://c06saqxed1reo" path="res://scripts/doorway.gd" id="2"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_north"]
-size = Vector2(1152, 32)
+size = Vector2(1152, 16)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_west"]
-size = Vector2(32, 648)
+size = Vector2(16, 648)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_east_top"]
-size = Vector2(32, 284)
+size = Vector2(16, 284)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_east_bottom"]
-size = Vector2(32, 284)
+size = Vector2(16, 284)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_south_left"]
 size = Vector2(536, 32)
@@ -22,28 +22,28 @@ size = Vector2(536, 32)
 size = Vector2(536, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_couch_col"]
-size = Vector2(180, 60)
+size = Vector2(180, 46)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_couch_zone"]
 size = Vector2(220, 100)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_tv_col"]
-size = Vector2(160, 80)
+size = Vector2(160, 64)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_tv_zone"]
 size = Vector2(200, 120)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_trunk_col"]
-size = Vector2(80, 60)
+size = Vector2(80, 42)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_trunk_zone"]
 size = Vector2(120, 100)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_east_door"]
-size = Vector2(32, 80)
+size = Vector2(16, 80)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_south_door"]
-size = Vector2(80, 32)
+size = Vector2(80, 16)
 
 [node name="LivingRoom" type="Node2D" unique_id=1828458768]
 
@@ -57,10 +57,10 @@ color = Color(0.545, 0.451, 0.333, 1)
 [node name="WallNorth" type="StaticBody2D" parent="Walls" unique_id=1844741566]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorth" unique_id=16963263]
-position = Vector2(576, 16)
+position = Vector2(576, 8)
 shape = SubResource("RectangleShape2D_wall_north")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallNorth"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorth" unique_id=2080124476]
 offset_right = 1152.0
 offset_bottom = 32.0
 color = Color(0.2, 0.15, 0.1, 1)
@@ -68,10 +68,10 @@ color = Color(0.2, 0.15, 0.1, 1)
 [node name="WallWest" type="StaticBody2D" parent="Walls" unique_id=575007002]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWest" unique_id=1883671940]
-position = Vector2(16, 324)
+position = Vector2(8, 324)
 shape = SubResource("RectangleShape2D_wall_west")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallWest"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWest" unique_id=1689990067]
 offset_right = 32.0
 offset_bottom = 648.0
 color = Color(0.2, 0.15, 0.1, 1)
@@ -79,10 +79,10 @@ color = Color(0.2, 0.15, 0.1, 1)
 [node name="WallEastTop" type="StaticBody2D" parent="Walls" unique_id=8303731]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastTop" unique_id=2005460460]
-position = Vector2(1136, 142)
+position = Vector2(1144, 142)
 shape = SubResource("RectangleShape2D_wall_east_top")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallEastTop"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEastTop" unique_id=1753285026]
 offset_left = 1120.0
 offset_right = 1152.0
 offset_bottom = 284.0
@@ -91,10 +91,10 @@ color = Color(0.2, 0.15, 0.1, 1)
 [node name="WallEastBottom" type="StaticBody2D" parent="Walls" unique_id=527608564]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastBottom" unique_id=1147703002]
-position = Vector2(1136, 506)
+position = Vector2(1144, 506)
 shape = SubResource("RectangleShape2D_wall_east_bottom")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallEastBottom"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEastBottom" unique_id=518478236]
 offset_left = 1120.0
 offset_top = 364.0
 offset_right = 1152.0
@@ -107,7 +107,7 @@ color = Color(0.2, 0.15, 0.1, 1)
 position = Vector2(268, 632)
 shape = SubResource("RectangleShape2D_wall_south_left")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthLeft"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthLeft" unique_id=1148364191]
 offset_top = 616.0
 offset_right = 536.0
 offset_bottom = 648.0
@@ -119,7 +119,7 @@ color = Color(0.2, 0.15, 0.1, 1)
 position = Vector2(884, 632)
 shape = SubResource("RectangleShape2D_wall_south_right")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthRight"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthRight" unique_id=727221328]
 offset_left = 616.0
 offset_top = 616.0
 offset_right = 1152.0
@@ -129,22 +129,24 @@ color = Color(0.2, 0.15, 0.1, 1)
 [node name="Objects" type="Node2D" parent="." unique_id=233246173]
 
 [node name="Couch" type="StaticBody2D" parent="Objects" unique_id=1028141350]
-position = Vector2(220, 320)
+position = Vector2(504, 216)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Couch"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Couch" unique_id=1602210391]
 offset_left = -90.0
 offset_top = -30.0
 offset_right = 90.0
 offset_bottom = 30.0
 color = Color(0.3, 0.18, 0.1, 1)
+metadata/_edit_use_anchors_ = true
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Couch" unique_id=100744642]
+position = Vector2(0, -7)
 shape = SubResource("RectangleShape2D_couch_col")
 
 [node name="CouchInteractable" type="Area2D" parent="Objects/Couch" unique_id=1426324662]
 script = ExtResource("1")
 interaction_id = "couch"
-interaction_text = "A pretty uncomfortable couch."
+interaction_pages = Array[String](["A pretty uncomfortable couch.", "I've been meaning to replace it for years."])
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Couch/CouchInteractable" unique_id=1824434389]
 shape = SubResource("RectangleShape2D_couch_zone")
@@ -152,7 +154,7 @@ shape = SubResource("RectangleShape2D_couch_zone")
 [node name="TV" type="StaticBody2D" parent="Objects" unique_id=1953232906]
 position = Vector2(496, 64)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/TV"]
+[node name="WallVisual" type="ColorRect" parent="Objects/TV" unique_id=664233102]
 offset_left = -80.0
 offset_top = -40.0
 offset_right = 80.0
@@ -160,6 +162,7 @@ offset_bottom = 40.0
 color = Color(0.2, 0.2, 0.2, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/TV" unique_id=1105121421]
+position = Vector2(0, -8)
 shape = SubResource("RectangleShape2D_tv_col")
 
 [node name="TVInteractable" type="Area2D" parent="Objects/TV" unique_id=1987145633]
@@ -173,7 +176,7 @@ shape = SubResource("RectangleShape2D_tv_zone")
 [node name="Trunk" type="StaticBody2D" parent="Objects" unique_id=774180481]
 position = Vector2(100, 500)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Trunk"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Trunk" unique_id=15908410]
 offset_left = -40.0
 offset_top = -30.0
 offset_right = 40.0
@@ -181,6 +184,7 @@ offset_bottom = 30.0
 color = Color(0.35, 0.22, 0.1, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Trunk" unique_id=464573963]
+position = Vector2(0, -9)
 shape = SubResource("RectangleShape2D_trunk_col")
 
 [node name="TrunkInteractable" type="Area2D" parent="Objects/Trunk" unique_id=38930065]
@@ -200,6 +204,7 @@ destination_room = "kitchen"
 entry_side = "west"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/EastDoor" unique_id=1791587627]
+position = Vector2(8, 0)
 shape = SubResource("RectangleShape2D_east_door")
 
 [node name="SouthDoor" type="Area2D" parent="Doorways" unique_id=1508249335]
@@ -209,4 +214,5 @@ destination_room = "bathroom"
 entry_side = "north"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/SouthDoor" unique_id=647124342]
+position = Vector2(0, 8)
 shape = SubResource("RectangleShape2D_south_door")

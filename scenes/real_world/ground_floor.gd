@@ -50,6 +50,12 @@ var current_interactable = null
 # need to remember which object we were interacting with to route the choice.
 var _active_interactable: Interactable = null
 
+# When an Interactable has both interaction_pages AND choice_options, we first
+# play the flavor pages as plain text. This dictionary holds the choice that
+# should appear AFTER those pages are dismissed. Empty when nothing is pending.
+# Keys: "prompt" (String), "options" (Array).
+var _pending_choice: Dictionary = {}
+
 
 func _ready() -> void:
 	# Start in the Living Room. Passing "" as entry_side centers the player.
@@ -83,6 +89,8 @@ func _load_room(room_name: String, entry_side: String) -> void:
 		child.queue_free()
 
 	current_interactable = null
+	_active_interactable = null
+	_pending_choice = {}
 	interact_hint.visible = false
 
 	# Instantiate the new room and add it.
@@ -129,8 +137,7 @@ func _apply_persistent_state(room_name: String, room: Node2D) -> void:
 		if GameManager.get_flag("shower_opened"):
 			var shower: Interactable = _find_node_by_id(room, "shower")
 			if shower != null:
-				shower.interaction_text = "Just an empty shower now."
-				shower.choice_options = []
+				_apply_shower_opened_state(shower)
 
 			# If the floppy is still in the world (not yet picked up), reveal it
 			# so the player sees it sitting there on their return trip.
@@ -202,14 +209,47 @@ func _handle_interaction(target: Interactable) -> void:
 		dialogue_box.show_text("You picked up [RUN.EXE]!")
 		return
 
-	# Everything else: show plain text or a choice menu based on choice_options.
-	if target.choice_options.is_empty():
-		dialogue_box.show_text(target.interaction_text)
-	else:
+	# Decide the dialog flow based on which fields the Interactable has set:
+	#   - pages only        → play all pages as plain text
+	#   - choices only      → show choice menu with interaction_text as prompt
+	#   - pages + choices   → play all pages EXCEPT the last, then show the last
+	#                         page as the prompt for the choice menu
+	#   - neither           → show interaction_text as a single-page message
+	var has_pages := not target.interaction_pages.is_empty()
+	var has_choices := not target.choice_options.is_empty()
+
+	if has_pages and has_choices:
+		# The last page is the prompt that sits above the choice options.
+		# Any earlier pages are flavor text shown in sequence first.
+		var prompt: String = target.interaction_pages[-1]
+		if target.interaction_pages.size() == 1:
+			# Only one page — skip straight to the choice menu using it as prompt.
+			dialogue_box.show_choice(prompt, target.choice_options)
+		else:
+			# Play the earlier pages first; stash the choice for after dismissal.
+			var flavor_pages: Array = target.interaction_pages.slice(0, -1)
+			_pending_choice = {"prompt": prompt, "options": target.choice_options}
+			dialogue_box.show_text(flavor_pages)
+	elif has_pages:
+		dialogue_box.show_text(target.interaction_pages)
+	elif has_choices:
 		dialogue_box.show_choice(target.interaction_text, target.choice_options)
+	else:
+		dialogue_box.show_text(target.interaction_text)
 
 
 func _on_dialogue_dismissed() -> void:
+	# If flavor text just finished and a choice menu is queued up (set by
+	# _handle_interaction for objects with pages + choices), switch to the
+	# choice menu now. Do NOT unfreeze the player — the interaction isn't
+	# over yet, it's just changing modes.
+	if not _pending_choice.is_empty():
+		var prompt: String = _pending_choice.get("prompt", "")
+		var options: Array = _pending_choice.get("options", [])
+		_pending_choice = {}
+		dialogue_box.show_choice(prompt, options)
+		return
+
 	# After picking up the floppy, remove it from the scene and persist the
 	# pickup so returning to the bathroom later won't spawn another one.
 	if _active_interactable != null and _active_interactable.interaction_id == "floppy_run":
@@ -248,24 +288,22 @@ func _on_choice_made(index: int) -> void:
 			player.process_mode = Node.PROCESS_MODE_INHERIT
 
 
-# Hides the shower, reveals the floppy disk, shows the discovery message.
+# Reveals the floppy disk, rewrites the shower's interaction to its post-reveal
+# state, and shows the discovery message.
 func _open_shower_curtain() -> void:
 	# Record that the shower has been opened, so returning to the bathroom
-	# later loads it in the already-opened state (no more choice dialog).
+	# later loads it in the already-opened state.
 	GameManager.set_flag("shower_opened", true)
 
 	var room: Node2D = room_container.get_child(0)
 
-	# Disable the shower's interaction zone so the player can't re-trigger the
-	# "Open / Leave alone" dialog. We only turn off the Area2D (the interactable) —
-	# the parent Shower StaticBody2D stays visible and solid so the shower itself
-	# still appears in the room and the player can't walk through it.
-	var shower_interactable: Node = _find_node_by_id(room, "shower")
+	# Rewrite the shower Interactable in-place so the player can still interact
+	# with it (now seeing the post-reveal text) without having to leave and
+	# come back. _apply_persistent_state sets the same values on future room
+	# loads; _apply_shower_opened_state is the single source of truth.
+	var shower_interactable: Interactable = _find_node_by_id(room, "shower")
 	if shower_interactable != null:
-		shower_interactable.monitoring = false     # stop detecting body_entered
-		shower_interactable.set_deferred("monitorable", false)
-		# Also remove it from tracking so the hint won't reappear.
-		shower_interactable.queue_free()
+		_apply_shower_opened_state(shower_interactable)
 
 	# The FloppyDisk is the Interactable node itself (not a child of a StaticBody2D),
 	# so we show the node directly.
@@ -273,8 +311,11 @@ func _open_shower_curtain() -> void:
 	if floppy != null:
 		floppy.visible = true
 
-	# Clear the interactable references so pressing Enter after dismissing the
-	# discovery text doesn't accidentally re-trigger the shower dialog.
+	# Clear the interactable references so the next Enter press doesn't
+	# re-trigger the shower dialog mid-transition. The player is frozen
+	# while the discovery text is showing; when they dismiss it and physics
+	# re-engages, the Area2D will re-fire body_entered if they're still in
+	# the zone, setting current_interactable to the (now post-reveal) shower.
 	current_interactable = null
 	_active_interactable = null
 	interact_hint.visible = false
@@ -282,6 +323,25 @@ func _open_shower_curtain() -> void:
 	# Show discovery text. When the player dismisses it, _on_dialogue_dismissed
 	# unfreezes them. They can then walk to the floppy and press Enter to pick it up.
 	dialogue_box.show_text("You find a floppy disk behind the curtain.")
+
+
+# Mutates a shower Interactable into its "already opened" state. Called from
+# both _open_shower_curtain (same-session reveal) and _apply_persistent_state
+# (room re-entry), so the two code paths can never disagree about what the
+# opened shower says.
+#
+# The actual post-reveal dialog is authored in the Godot Inspector on the
+# ShowerInteractable node itself, via the secondary_text / secondary_pages /
+# secondary_choice_options fields on the Interactable. This function just
+# copies those fields into the primary interaction_* fields so the normal
+# _handle_interaction flow picks them up.
+func _apply_shower_opened_state(shower: Interactable) -> void:
+	# Copy the author-provided secondary dialog into the primary fields that
+	# _handle_interaction reads. Duplicate the arrays so mutating one doesn't
+	# mutate the source of truth on the Interactable.
+	shower.interaction_text = shower.secondary_text
+	shower.interaction_pages = shower.secondary_pages.duplicate()
+	shower.choice_options = shower.secondary_choice_options.duplicate()
 
 
 # Searches all descendants of root for an Interactable with the given interaction_id.

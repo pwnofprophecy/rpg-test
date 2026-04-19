@@ -22,25 +22,25 @@ size = Vector2(536, 32)
 size = Vector2(536, 32)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_table_col"]
-size = Vector2(200, 120)
+size = Vector2(96, 112)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_table_zone"]
-size = Vector2(260, 180)
+size = Vector2(104, 168)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_chair_col"]
-size = Vector2(60, 60)
+size = Vector2(46, 48)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_counter_col"]
-size = Vector2(480, 60)
+size = Vector2(480, 64)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_sink_zone"]
 size = Vector2(80, 80)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_fridge_col"]
-size = Vector2(80, 120)
+size = Vector2(80, 136)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_fridge_zone"]
-size = Vector2(120, 160)
+size = Vector2(88, 144)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_west_door"]
 size = Vector2(32, 80)
@@ -59,22 +59,22 @@ color = Color(0.784, 0.753, 0.69, 1)
 
 [node name="WallNorth" type="StaticBody2D" parent="Walls" unique_id=1714187413]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorth"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorth" unique_id=1904412761]
 position = Vector2(576, 16)
 shape = SubResource("RectangleShape2D_wall_north")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallNorth"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorth" unique_id=1265405032]
 offset_right = 1152.0
 offset_bottom = 32.0
 color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallEast" type="StaticBody2D" parent="Walls" unique_id=2076460861]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEast"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEast" unique_id=1303951190]
 position = Vector2(1136, 324)
 shape = SubResource("RectangleShape2D_wall_east")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallEast"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEast" unique_id=169725575]
 offset_left = 1120.0
 offset_right = 1152.0
 offset_bottom = 648.0
@@ -82,22 +82,22 @@ color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallWestTop" type="StaticBody2D" parent="Walls" unique_id=1121118153]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestTop"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestTop" unique_id=1154259698]
 position = Vector2(16, 142)
 shape = SubResource("RectangleShape2D_wall_west_top")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallWestTop"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWestTop" unique_id=847260389]
 offset_right = 32.0
 offset_bottom = 284.0
 color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallWestBottom" type="StaticBody2D" parent="Walls" unique_id=515195205]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestBottom"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestBottom" unique_id=1970468630]
 position = Vector2(16, 506)
 shape = SubResource("RectangleShape2D_wall_west_bottom")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallWestBottom"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWestBottom" unique_id=209517065]
 offset_top = 364.0
 offset_right = 32.0
 offset_bottom = 648.0
@@ -105,11 +105,11 @@ color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallSouthLeft" type="StaticBody2D" parent="Walls" unique_id=1173018585]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouthLeft"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouthLeft" unique_id=233260116]
 position = Vector2(268, 632)
 shape = SubResource("RectangleShape2D_wall_south_left")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthLeft"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthLeft" unique_id=724548993]
 offset_top = 616.0
 offset_right = 536.0
 offset_bottom = 648.0
@@ -117,11 +117,11 @@ color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallSouthRight" type="StaticBody2D" parent="Walls" unique_id=1704485925]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouthRight"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouthRight" unique_id=1896316318]
 position = Vector2(884, 632)
 shape = SubResource("RectangleShape2D_wall_south_right")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthRight"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthRight" unique_id=1703203599]
 offset_left = 616.0
 offset_top = 616.0
 offset_right = 1152.0
@@ -131,16 +131,17 @@ color = Color(0.2, 0.15, 0.1, 1)
 [node name="Objects" type="Node2D" parent="." unique_id=363592536]
 
 [node name="Table" type="StaticBody2D" parent="Objects" unique_id=1139398133]
-position = Vector2(450, 250)
+position = Vector2(136, 96)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Table"]
-offset_left = -100.0
-offset_top = -60.0
-offset_right = 100.0
-offset_bottom = 60.0
+[node name="WallVisual" type="ColorRect" parent="Objects/Table" unique_id=666910055]
+offset_left = -104.0
+offset_top = -64.0
+offset_right = -8.0
+offset_bottom = 48.0
 color = Color(0.55, 0.42, 0.28, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Table" unique_id=1372136106]
+position = Vector2(-56, -8)
 shape = SubResource("RectangleShape2D_table_col")
 
 [node name="TableInteractable" type="Area2D" parent="Objects/Table" unique_id=1884242533]
@@ -149,29 +150,31 @@ interaction_id = "kitchen_table"
 interaction_text = "A perfect set up for dinner for one."
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Table/TableInteractable" unique_id=185539185]
+position = Vector2(-52, 20)
 shape = SubResource("RectangleShape2D_table_zone")
 
 [node name="Chair" type="StaticBody2D" parent="Objects" unique_id=815764636]
-position = Vector2(540, 380)
+position = Vector2(72, 176)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Chair"]
-offset_left = -30.0
-offset_top = -30.0
+[node name="WallVisual" type="ColorRect" parent="Objects/Chair" unique_id=1376342849]
+offset_left = -16.0
+offset_top = -32.0
 offset_right = 30.0
-offset_bottom = 30.0
+offset_bottom = 16.0
 color = Color(0.45, 0.32, 0.18, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Chair" unique_id=59921416]
+position = Vector2(7, -8)
 shape = SubResource("RectangleShape2D_chair_col")
 
 [node name="Counter" type="StaticBody2D" parent="Objects" unique_id=696859519]
-position = Vector2(640, 560)
+position = Vector2(880, 64)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Counter"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Counter" unique_id=1433024164]
 offset_left = -240.0
-offset_top = -30.0
+offset_top = -32.0
 offset_right = 240.0
-offset_bottom = 30.0
+offset_bottom = 32.0
 color = Color(0.6, 0.55, 0.45, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Counter" unique_id=1111417347]
@@ -182,7 +185,7 @@ script = ExtResource("1")
 interaction_id = "sink_kitchen"
 interaction_text = "The faucet is leaking."
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Counter/Sink"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Counter/Sink" unique_id=42103405]
 offset_left = -20.0
 offset_top = -15.0
 offset_right = 20.0
@@ -193,16 +196,18 @@ color = Color(0.7, 0.85, 0.9, 1)
 shape = SubResource("RectangleShape2D_sink_zone")
 
 [node name="Fridge" type="StaticBody2D" parent="Objects" unique_id=703514528]
-position = Vector2(1050, 390)
+position = Vector2(576, 72)
+rotation = 1.5707964
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Fridge"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Fridge" unique_id=1230848769]
 offset_left = -40.0
-offset_top = -60.0
+offset_top = -64.30908
 offset_right = 40.0
-offset_bottom = 60.0
+offset_bottom = 72.392975
 color = Color(0.85, 0.85, 0.85, 1)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Fridge" unique_id=1227087805]
+position = Vector2(0, 4)
 shape = SubResource("RectangleShape2D_fridge_col")
 
 [node name="FridgeInteractable" type="Area2D" parent="Objects/Fridge" unique_id=1255797920]
@@ -211,6 +216,7 @@ interaction_id = "fridge"
 interaction_text = "Plenty of condiments, but no real food."
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Fridge/FridgeInteractable" unique_id=1142156836]
+position = Vector2(4, 8)
 shape = SubResource("RectangleShape2D_fridge_zone")
 
 [node name="Doorways" type="Node2D" parent="." unique_id=913180274]

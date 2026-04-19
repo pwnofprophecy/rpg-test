@@ -1,7 +1,10 @@
 # dialogue_box.gd
 # A reusable CanvasLayer that sits at the bottom of the screen and shows
 # two kinds of UI:
-#   1. Simple text messages ("A pretty uncomfortable couch.") — press Enter to dismiss.
+#   1. Simple text messages — press Enter to advance pages, then dismiss.
+#      Supports both single-page (pass a String) and multi-page (pass an
+#      Array[String] of "pages"). Multi-page flows show a ▼ indicator while
+#      more pages remain.
 #   2. Choice menus ("What will you do?" with navigable options) — arrow keys + Enter.
 #
 # This script mirrors the input/signal pattern in battle_ui.gd, adapted for
@@ -9,10 +12,11 @@
 # to do based on the choice made.
 #
 # Usage:
-#   dialogue_box.show_text("Some message.")
+#   dialogue_box.show_text("Some message.")                       # single page
+#   dialogue_box.show_text(["First line.", "Second line.", "..."])  # multi-page
 #   dialogue_box.show_choice("Prompt?", ["Option A", "Option B"])
 # Listen to:
-#   dialogue_box.dismissed         — text box was closed
+#   dialogue_box.dismissed         — text box was fully closed (last page advanced)
 #   dialogue_box.choice_made(int)  — player confirmed a choice (0-indexed)
 
 extends CanvasLayer
@@ -31,6 +35,16 @@ var _choice_active: bool = false      # True when a choice menu is showing
 var _cursor_index: int = 0            # Which choice is highlighted
 var _options: Array = []              # The current list of option strings
 var _option_labels: Array[Label] = [] # The Label nodes we create for each option
+
+# Multi-page text state. A page is one chunk of text the player sees before
+# pressing Enter to advance. When pages is empty or we've advanced past the
+# last index, the dialog dismisses.
+var _pages: Array[String] = []
+var _current_page: int = 0
+
+# Suffix appended to the displayed text when more pages remain. Pure visual
+# cue so the player knows to press Enter to see more.
+const MORE_INDICATOR: String = "  ▼"
 
 
 func _ready() -> void:
@@ -67,20 +81,45 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_cursor()
 			get_viewport().set_input_as_handled()
 	else:
-		# --- Plain text mode: any confirm or cancel key closes the box ---
-		if event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_cancel"):
+		# --- Plain text mode ---
+		# ui_accept advances to the next page, or closes on the last page.
+		# ui_cancel always closes immediately (lets the player skip).
+		if event.is_action_pressed("ui_accept"):
+			_advance_page()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_cancel"):
 			_close()
 			dismissed.emit()
 			get_viewport().set_input_as_handled()
 
 
-# Show a simple dismissable text message.
-# The player presses Enter or Backspace to close it.
-func show_text(message: String) -> void:
+# Show a dismissable text message.
+# Accepts either a single String (one page) or an Array[String] (multiple
+# pages the player advances through with Enter).
+# The `content` parameter is typed as Variant so callers don't have to wrap
+# single strings in arrays.
+func show_text(content: Variant) -> void:
 	_choice_active = false
-	text_label.text = message
 	_clear_options()
 	options_container.visible = false
+
+	# Normalize the input to a list of pages.
+	if content is String:
+		_pages = [content]
+	elif content is Array:
+		# duplicate() so clearing _pages later doesn't affect the caller's array.
+		# Also coerce each element to String for safety.
+		_pages = []
+		for item in content:
+			_pages.append(str(item))
+		if _pages.is_empty():
+			_pages = [""]
+	else:
+		# Unexpected type — fall back to string conversion so we don't crash.
+		_pages = [str(content)]
+
+	_current_page = 0
+	_render_current_page()
 	panel.visible = true
 
 
@@ -134,8 +173,32 @@ func _update_cursor() -> void:
 			_option_labels[i].text = "  " + _options[i]
 
 
+# Writes the currently-selected page into the text label. Appends a "more"
+# indicator when additional pages remain so the player knows to press Enter
+# to continue.
+func _render_current_page() -> void:
+	var text: String = _pages[_current_page]
+	if _current_page < _pages.size() - 1:
+		text += MORE_INDICATOR
+	text_label.text = text
+
+
+# Called when the player presses Enter in plain text mode. Advances to the
+# next page if there is one; otherwise closes the dialog and fires the
+# `dismissed` signal so ground_floor.gd can unfreeze the player.
+func _advance_page() -> void:
+	if _current_page + 1 < _pages.size():
+		_current_page += 1
+		_render_current_page()
+	else:
+		_close()
+		dismissed.emit()
+
+
 # Hides the panel. Always call this before emitting signals so listeners
 # don't trigger a new show_* call while we're still closing.
 func _close() -> void:
 	panel.visible = false
 	_choice_active = false
+	_pages.clear()
+	_current_page = 0

@@ -43,10 +43,10 @@ size = Vector2(160, 120)
 size = Vector2(48, 48)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_north_door"]
-size = Vector2(80, 32)
+size = Vector2(80, 16)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_east_door"]
-size = Vector2(32, 80)
+size = Vector2(16, 80)
 
 [node name="Bathroom" type="Node2D" unique_id=834766082]
 
@@ -59,22 +59,22 @@ color = Color(0.69, 0.784, 0.816, 1)
 
 [node name="WallWest" type="StaticBody2D" parent="Walls" unique_id=1814816803]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWest"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWest" unique_id=87572930]
 position = Vector2(16, 324)
 shape = SubResource("RectangleShape2D_wall_west")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallWest"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWest" unique_id=1795650944]
 offset_right = 32.0
 offset_bottom = 648.0
 color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallSouth" type="StaticBody2D" parent="Walls" unique_id=1366872923]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouth"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouth" unique_id=2101481708]
 position = Vector2(576, 632)
 shape = SubResource("RectangleShape2D_wall_south")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallSouth"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouth" unique_id=711727281]
 offset_top = 616.0
 offset_right = 1152.0
 offset_bottom = 648.0
@@ -82,22 +82,22 @@ color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallNorthLeft" type="StaticBody2D" parent="Walls" unique_id=1643406561]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthLeft"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthLeft" unique_id=1674455844]
 position = Vector2(268, 16)
 shape = SubResource("RectangleShape2D_wall_north_left")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthLeft"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthLeft" unique_id=99536460]
 offset_right = 536.0
 offset_bottom = 32.0
 color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallNorthRight" type="StaticBody2D" parent="Walls" unique_id=616536929]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthRight"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthRight" unique_id=1226720442]
 position = Vector2(884, 16)
 shape = SubResource("RectangleShape2D_wall_north_right")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthRight"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthRight" unique_id=357032822]
 offset_left = 616.0
 offset_right = 1152.0
 offset_bottom = 32.0
@@ -105,11 +105,11 @@ color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallEastTop" type="StaticBody2D" parent="Walls" unique_id=488411285]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastTop"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastTop" unique_id=408329273]
 position = Vector2(1136, 142)
 shape = SubResource("RectangleShape2D_wall_east_top")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallEastTop"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEastTop" unique_id=1822542620]
 offset_left = 1120.0
 offset_right = 1152.0
 offset_bottom = 284.0
@@ -117,11 +117,11 @@ color = Color(0.2, 0.15, 0.1, 1)
 
 [node name="WallEastBottom" type="StaticBody2D" parent="Walls" unique_id=74239333]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastBottom"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastBottom" unique_id=889902502]
 position = Vector2(1136, 506)
 shape = SubResource("RectangleShape2D_wall_east_bottom")
 
-[node name="WallVisual" type="ColorRect" parent="Walls/WallEastBottom"]
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEastBottom" unique_id=10029416]
 offset_left = 1120.0
 offset_top = 364.0
 offset_right = 1152.0
@@ -133,7 +133,7 @@ color = Color(0.2, 0.15, 0.1, 1)
 [node name="Sink" type="StaticBody2D" parent="Objects" unique_id=1890730942]
 position = Vector2(80, 200)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Sink"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Sink" unique_id=1556499310]
 offset_left = -40.0
 offset_top = -30.0
 offset_right = 40.0
@@ -154,7 +154,7 @@ shape = SubResource("RectangleShape2D_sink_zone")
 [node name="Toilet" type="StaticBody2D" parent="Objects" unique_id=377426344]
 position = Vector2(200, 580)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Toilet"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Toilet" unique_id=2108238944]
 offset_left = -30.0
 offset_top = -40.0
 offset_right = 30.0
@@ -175,7 +175,7 @@ shape = SubResource("RectangleShape2D_toilet_zone")
 [node name="Shower" type="StaticBody2D" parent="Objects" unique_id=1731083950]
 position = Vector2(900, 580)
 
-[node name="WallVisual" type="ColorRect" parent="Objects/Shower"]
+[node name="WallVisual" type="ColorRect" parent="Objects/Shower" unique_id=1527724672]
 offset_left = -60.0
 offset_top = -40.0
 offset_right = 60.0
@@ -188,8 +188,9 @@ shape = SubResource("RectangleShape2D_shower_col")
 [node name="ShowerInteractable" type="Area2D" parent="Objects/Shower" unique_id=1193905400]
 script = ExtResource("1")
 interaction_id = "shower"
-interaction_text = "I didn't leave the curtain drawn."
+interaction_pages = Array[String](["I didn't leave the curtain drawn.", "Open it?"])
 choice_options = ["Open", "Leave alone"]
+secondary_pages = Array[String](["Just an empty shower.", "Best to leave it alone now."])
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Shower/ShowerInteractable" unique_id=638503071]
 shape = SubResource("RectangleShape2D_shower_zone")
@@ -201,7 +202,7 @@ script = ExtResource("1")
 interaction_id = "floppy_run"
 interaction_text = "RUN.EXE — a floppy disk."
 
-[node name="WallVisual" type="ColorRect" parent="Objects/FloppyDisk"]
+[node name="WallVisual" type="ColorRect" parent="Objects/FloppyDisk" unique_id=1015517301]
 offset_left = -16.0
 offset_top = -16.0
 offset_right = 16.0
@@ -220,6 +221,7 @@ destination_room = "living_room"
 entry_side = "south"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/NorthDoor" unique_id=886013694]
+position = Vector2(0, -8)
 shape = SubResource("RectangleShape2D_north_door")
 
 [node name="EastDoor" type="Area2D" parent="Doorways" unique_id=2082619218]
@@ -229,4 +231,5 @@ destination_room = "office"
 entry_side = "west"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/EastDoor" unique_id=1847513685]
+position = Vector2(8, 0)
 shape = SubResource("RectangleShape2D_east_door")
