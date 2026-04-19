@@ -9,6 +9,30 @@ extends CharacterBody2D
 # so you can tweak it without touching the code.
 @export var speed: float = 200.0
 
+func _ready() -> void:
+	# Add ourselves to the "player" group so Interactable zones can identify
+	# us with body.is_in_group("player") instead of checking the class type.
+	# This is safer — it won't accidentally trigger on other CharacterBody2D nodes.
+	add_to_group("player")
+	# Ensure we render on top of room contents.
+	z_index = 10
+	# Force a redraw so _draw() runs.
+	queue_redraw()
+
+
+# _draw() is called by Godot when the node needs to render itself.
+# We bypass child visual nodes (Polygon2D / ColorRect) entirely and draw
+# the player directly here — this is the most reliable way to guarantee
+# something shows up on screen.
+func _draw() -> void:
+	# Body: 28x44 blue rectangle centered on the player's origin.
+	var body_rect := Rect2(Vector2(-14, -22), Vector2(28, 44))
+	draw_rect(body_rect, Color(0.357, 0.553, 0.851), true)
+	# Head: 18x18 skin-toned square sitting on top of the body.
+	var head_rect := Rect2(Vector2(-9, -32), Vector2(18, 18))
+	draw_rect(head_rect, Color(0.957, 0.769, 0.541), true)
+
+
 # _physics_process runs every physics frame (60 times per second by default).
 # The "_delta" parameter is the time since the last frame — we're not using it
 # here, but Godot requires it in the function signature.

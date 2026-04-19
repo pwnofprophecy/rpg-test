@@ -17,7 +17,7 @@ extends Node
 # "preload" loads these at compile time so they're instantly available at
 # runtime. For Phase 0 this is fine because both scenes are tiny. In later
 # phases, if scenes get heavy, we can switch to "load()" for lazy loading.
-const REAL_WORLD_SCENE: PackedScene = preload("res://scenes/real_world/ground_floor_placeholder.tscn")
+const REAL_WORLD_SCENE: PackedScene = preload("res://scenes/real_world/ground_floor.tscn")
 const RPG_SCENE: PackedScene = preload("res://scenes/rpg/rpg_overworld.tscn")
 
 # Reference to the container node that holds the currently active world.

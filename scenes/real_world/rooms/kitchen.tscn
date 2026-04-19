@@ -1,0 +1,234 @@
+[gd_scene format=3 uid="uid://bcvb7usbbih1r"]
+
+[ext_resource type="Script" uid="uid://l718wvqxtq7y" path="res://scripts/interactable.gd" id="1"]
+[ext_resource type="Script" uid="uid://c06saqxed1reo" path="res://scripts/doorway.gd" id="2"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_north"]
+size = Vector2(1152, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_east"]
+size = Vector2(32, 648)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_west_top"]
+size = Vector2(32, 284)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_west_bottom"]
+size = Vector2(32, 284)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_south_left"]
+size = Vector2(536, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_south_right"]
+size = Vector2(536, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_table_col"]
+size = Vector2(200, 120)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_table_zone"]
+size = Vector2(260, 180)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_chair_col"]
+size = Vector2(60, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_counter_col"]
+size = Vector2(480, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sink_zone"]
+size = Vector2(80, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fridge_col"]
+size = Vector2(80, 120)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fridge_zone"]
+size = Vector2(120, 160)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_west_door"]
+size = Vector2(32, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_south_door"]
+size = Vector2(80, 32)
+
+[node name="Kitchen" type="Node2D" unique_id=43868870]
+
+[node name="Floor" type="ColorRect" parent="." unique_id=1207206865]
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.784, 0.753, 0.69, 1)
+
+[node name="Walls" type="Node2D" parent="." unique_id=876109894]
+
+[node name="WallNorth" type="StaticBody2D" parent="Walls" unique_id=1714187413]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorth"]
+position = Vector2(576, 16)
+shape = SubResource("RectangleShape2D_wall_north")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorth"]
+offset_right = 1152.0
+offset_bottom = 32.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallEast" type="StaticBody2D" parent="Walls" unique_id=2076460861]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEast"]
+position = Vector2(1136, 324)
+shape = SubResource("RectangleShape2D_wall_east")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEast"]
+offset_left = 1120.0
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallWestTop" type="StaticBody2D" parent="Walls" unique_id=1121118153]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestTop"]
+position = Vector2(16, 142)
+shape = SubResource("RectangleShape2D_wall_west_top")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWestTop"]
+offset_right = 32.0
+offset_bottom = 284.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallWestBottom" type="StaticBody2D" parent="Walls" unique_id=515195205]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestBottom"]
+position = Vector2(16, 506)
+shape = SubResource("RectangleShape2D_wall_west_bottom")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWestBottom"]
+offset_top = 364.0
+offset_right = 32.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallSouthLeft" type="StaticBody2D" parent="Walls" unique_id=1173018585]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouthLeft"]
+position = Vector2(268, 632)
+shape = SubResource("RectangleShape2D_wall_south_left")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthLeft"]
+offset_top = 616.0
+offset_right = 536.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallSouthRight" type="StaticBody2D" parent="Walls" unique_id=1704485925]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouthRight"]
+position = Vector2(884, 632)
+shape = SubResource("RectangleShape2D_wall_south_right")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouthRight"]
+offset_left = 616.0
+offset_top = 616.0
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="Objects" type="Node2D" parent="." unique_id=363592536]
+
+[node name="Table" type="StaticBody2D" parent="Objects" unique_id=1139398133]
+position = Vector2(450, 250)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Table"]
+offset_left = -100.0
+offset_top = -60.0
+offset_right = 100.0
+offset_bottom = 60.0
+color = Color(0.55, 0.42, 0.28, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Table" unique_id=1372136106]
+shape = SubResource("RectangleShape2D_table_col")
+
+[node name="TableInteractable" type="Area2D" parent="Objects/Table" unique_id=1884242533]
+script = ExtResource("1")
+interaction_id = "kitchen_table"
+interaction_text = "A perfect set up for dinner for one."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Table/TableInteractable" unique_id=185539185]
+shape = SubResource("RectangleShape2D_table_zone")
+
+[node name="Chair" type="StaticBody2D" parent="Objects" unique_id=815764636]
+position = Vector2(540, 380)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Chair"]
+offset_left = -30.0
+offset_top = -30.0
+offset_right = 30.0
+offset_bottom = 30.0
+color = Color(0.45, 0.32, 0.18, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Chair" unique_id=59921416]
+shape = SubResource("RectangleShape2D_chair_col")
+
+[node name="Counter" type="StaticBody2D" parent="Objects" unique_id=696859519]
+position = Vector2(640, 560)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Counter"]
+offset_left = -240.0
+offset_top = -30.0
+offset_right = 240.0
+offset_bottom = 30.0
+color = Color(0.6, 0.55, 0.45, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Counter" unique_id=1111417347]
+shape = SubResource("RectangleShape2D_counter_col")
+
+[node name="Sink" type="Area2D" parent="Objects/Counter" unique_id=1652642461]
+script = ExtResource("1")
+interaction_id = "sink_kitchen"
+interaction_text = "The faucet is leaking."
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Counter/Sink"]
+offset_left = -20.0
+offset_top = -15.0
+offset_right = 20.0
+offset_bottom = 15.0
+color = Color(0.7, 0.85, 0.9, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Counter/Sink" unique_id=244378999]
+shape = SubResource("RectangleShape2D_sink_zone")
+
+[node name="Fridge" type="StaticBody2D" parent="Objects" unique_id=703514528]
+position = Vector2(1050, 390)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Fridge"]
+offset_left = -40.0
+offset_top = -60.0
+offset_right = 40.0
+offset_bottom = 60.0
+color = Color(0.85, 0.85, 0.85, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Fridge" unique_id=1227087805]
+shape = SubResource("RectangleShape2D_fridge_col")
+
+[node name="FridgeInteractable" type="Area2D" parent="Objects/Fridge" unique_id=1255797920]
+script = ExtResource("1")
+interaction_id = "fridge"
+interaction_text = "Plenty of condiments, but no real food."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Fridge/FridgeInteractable" unique_id=1142156836]
+shape = SubResource("RectangleShape2D_fridge_zone")
+
+[node name="Doorways" type="Node2D" parent="." unique_id=913180274]
+
+[node name="WestDoor" type="Area2D" parent="Doorways" unique_id=207158677]
+position = Vector2(16, 324)
+script = ExtResource("2")
+destination_room = "living_room"
+entry_side = "east"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/WestDoor" unique_id=490140542]
+shape = SubResource("RectangleShape2D_west_door")
+
+[node name="SouthDoor" type="Area2D" parent="Doorways" unique_id=1618788968]
+position = Vector2(576, 632)
+script = ExtResource("2")
+destination_room = "office"
+entry_side = "north"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/SouthDoor" unique_id=242974027]
+shape = SubResource("RectangleShape2D_south_door")

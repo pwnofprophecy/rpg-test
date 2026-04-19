@@ -26,6 +26,15 @@ signal mod_deactivated(mod_id: String)   # Mod was turned OFF
 var mods: Dictionary = {}
 
 
+func _ready() -> void:
+	# Register all mods that exist in the game.
+	# "found" stays false until the player picks up the floppy disk in the Real World.
+	# "run"   — found in the Bathroom shower. Makes the Run command in battle work.
+	# "items" — reserved for Phase 3 (Kitchen Sink defeat). Unlocks the item menu.
+	register_mod("run", "RUN.EXE", "Makes the Run command in battle actually work.")
+	register_mod("items", "ITEMS.EXE", "Unlocks the item menu in battle. Requires defeating Kitchen Sink.")
+
+
 # Register a new mod with the manager. Call this during startup (from mod
 # initialization scripts) so ModManager knows the mod exists.
 # Mods start unfound and inactive — the player must discover the floppy disk

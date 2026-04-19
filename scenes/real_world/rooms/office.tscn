@@ -1,0 +1,191 @@
+[gd_scene format=3 uid="uid://dbminuiw1tg44"]
+
+[ext_resource type="Script" uid="uid://l718wvqxtq7y" path="res://scripts/interactable.gd" id="1"]
+[ext_resource type="Script" uid="uid://c06saqxed1reo" path="res://scripts/doorway.gd" id="2"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_south"]
+size = Vector2(1152, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_east"]
+size = Vector2(32, 648)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_north_left"]
+size = Vector2(536, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_north_right"]
+size = Vector2(536, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_west_top"]
+size = Vector2(32, 284)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_west_bottom"]
+size = Vector2(32, 284)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_desk_col"]
+size = Vector2(400, 100)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_pc_zone"]
+size = Vector2(160, 100)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_cabinets_col"]
+size = Vector2(80, 300)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_cabinets_zone"]
+size = Vector2(120, 340)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_north_door"]
+size = Vector2(80, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_west_door"]
+size = Vector2(32, 80)
+
+[node name="Office" type="Node2D" unique_id=30804944]
+
+[node name="Floor" type="ColorRect" parent="." unique_id=61819976]
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.361, 0.29, 0.196, 1)
+
+[node name="Walls" type="Node2D" parent="." unique_id=440289842]
+
+[node name="WallSouth" type="StaticBody2D" parent="Walls" unique_id=2076987638]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouth"]
+position = Vector2(576, 632)
+shape = SubResource("RectangleShape2D_wall_south")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouth"]
+offset_top = 616.0
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallEast" type="StaticBody2D" parent="Walls" unique_id=739884503]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEast"]
+position = Vector2(1136, 324)
+shape = SubResource("RectangleShape2D_wall_east")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEast"]
+offset_left = 1120.0
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallNorthLeft" type="StaticBody2D" parent="Walls" unique_id=1464691640]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthLeft"]
+position = Vector2(268, 16)
+shape = SubResource("RectangleShape2D_wall_north_left")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthLeft"]
+offset_right = 536.0
+offset_bottom = 32.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallNorthRight" type="StaticBody2D" parent="Walls" unique_id=1675973133]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthRight"]
+position = Vector2(884, 16)
+shape = SubResource("RectangleShape2D_wall_north_right")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthRight"]
+offset_left = 616.0
+offset_right = 1152.0
+offset_bottom = 32.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallWestTop" type="StaticBody2D" parent="Walls" unique_id=1978296099]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestTop"]
+position = Vector2(16, 142)
+shape = SubResource("RectangleShape2D_wall_west_top")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWestTop"]
+offset_right = 32.0
+offset_bottom = 284.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallWestBottom" type="StaticBody2D" parent="Walls" unique_id=270529608]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWestBottom"]
+position = Vector2(16, 506)
+shape = SubResource("RectangleShape2D_wall_west_bottom")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWestBottom"]
+offset_top = 364.0
+offset_right = 32.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="Objects" type="Node2D" parent="." unique_id=1152539693]
+
+[node name="Desk" type="StaticBody2D" parent="Objects" unique_id=7177937]
+position = Vector2(376, 280)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Desk"]
+offset_left = -200.0
+offset_top = -50.0
+offset_right = 200.0
+offset_bottom = 50.0
+color = Color(0.4, 0.28, 0.15, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Desk" unique_id=515726033]
+shape = SubResource("RectangleShape2D_desk_col")
+
+[node name="PC" type="Area2D" parent="Objects/Desk" unique_id=803184165]
+script = ExtResource("1")
+interaction_id = "pc"
+interaction_text = "What do you want to do?"
+choice_options = ["Play RPG", "Manage Mods", "Walk away"]
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Desk/PC"]
+offset_left = -40.0
+offset_top = -25.0
+offset_right = 40.0
+offset_bottom = 25.0
+color = Color(0.15, 0.15, 0.2, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Desk/PC" unique_id=405443593]
+shape = SubResource("RectangleShape2D_pc_zone")
+
+[node name="FilingCabinets" type="StaticBody2D" parent="Objects" unique_id=1203937435]
+position = Vector2(1090, 324)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/FilingCabinets"]
+offset_left = -40.0
+offset_top = -150.0
+offset_right = 40.0
+offset_bottom = 150.0
+color = Color(0.5, 0.5, 0.55, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/FilingCabinets" unique_id=992831659]
+shape = SubResource("RectangleShape2D_cabinets_col")
+
+[node name="CabinetsInteractable" type="Area2D" parent="Objects/FilingCabinets" unique_id=1931641724]
+script = ExtResource("1")
+interaction_id = "filing_cabinets"
+interaction_text = "One day I'll use these for something more than aesthetic."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/FilingCabinets/CabinetsInteractable" unique_id=1368638364]
+shape = SubResource("RectangleShape2D_cabinets_zone")
+
+[node name="Doorways" type="Node2D" parent="." unique_id=1253301135]
+
+[node name="NorthDoor" type="Area2D" parent="Doorways" unique_id=1180194191]
+position = Vector2(576, 16)
+script = ExtResource("2")
+destination_room = "kitchen"
+entry_side = "south"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/NorthDoor" unique_id=1304561475]
+shape = SubResource("RectangleShape2D_north_door")
+
+[node name="WestDoor" type="Area2D" parent="Doorways" unique_id=1174554992]
+position = Vector2(16, 324)
+script = ExtResource("2")
+destination_room = "bathroom"
+entry_side = "east"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/WestDoor" unique_id=1629957290]
+shape = SubResource("RectangleShape2D_west_door")

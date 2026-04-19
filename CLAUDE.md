@@ -65,6 +65,13 @@ Three singletons are registered in `project.godot`:
 - Avoid binary `.scn` files; keep scenes as `.tscn` for version control readability.
 - Don't use git worktrees — work directly on the main repository.
 
+## Respecting the User's Scene Layouts
+The user arranges objects, collision shapes, sprites, doorways, walls, and other scene-level nodes by hand in the Godot editor. These layouts are the user's creative/design decisions and must be preserved.
+- **Do NOT move, resize, reposition, or reorganize** nodes in `.tscn` files the user has arranged, even if something looks "off" compared to an earlier version. That includes `position`, `offset_*`, `size`, `scale`, `rotation`, and the ordering/parenting of nodes.
+- **Do NOT "restore" prior positions** from memory, plan files, or git history — if the user moved something, the new location is the canonical one.
+- If a task genuinely requires moving something the user has placed (e.g. a new feature only works if a collision shape is resized), **stop and ask for permission first**, describing exactly what needs to move and why.
+- Editing scripts, adding new nodes the user hasn't placed, changing `interaction_text` / `interaction_id` / other script-level properties, and fixing obvious bugs are all still fair game without asking.
+
 ## Communication Style
 - The user is a novice — explain what you're doing and why in detail as you work.
 - When writing code, explain the purpose of new scripts, functions, and patterns.

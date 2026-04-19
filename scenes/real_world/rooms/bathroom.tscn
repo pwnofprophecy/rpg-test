@@ -1,0 +1,232 @@
+[gd_scene format=3 uid="uid://ch0m0fhn02l2l"]
+
+[ext_resource type="Script" uid="uid://l718wvqxtq7y" path="res://scripts/interactable.gd" id="1"]
+[ext_resource type="Script" uid="uid://c06saqxed1reo" path="res://scripts/doorway.gd" id="2"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_west"]
+size = Vector2(32, 648)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_south"]
+size = Vector2(1152, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_north_left"]
+size = Vector2(536, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_north_right"]
+size = Vector2(536, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_east_top"]
+size = Vector2(32, 284)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall_east_bottom"]
+size = Vector2(32, 284)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sink_col"]
+size = Vector2(80, 60)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_sink_zone"]
+size = Vector2(120, 100)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_toilet_col"]
+size = Vector2(60, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_toilet_zone"]
+size = Vector2(100, 120)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_shower_col"]
+size = Vector2(120, 80)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_shower_zone"]
+size = Vector2(160, 120)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_floppy_zone"]
+size = Vector2(48, 48)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_north_door"]
+size = Vector2(80, 32)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_east_door"]
+size = Vector2(32, 80)
+
+[node name="Bathroom" type="Node2D" unique_id=834766082]
+
+[node name="Floor" type="ColorRect" parent="." unique_id=2050777949]
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.69, 0.784, 0.816, 1)
+
+[node name="Walls" type="Node2D" parent="." unique_id=1710577329]
+
+[node name="WallWest" type="StaticBody2D" parent="Walls" unique_id=1814816803]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallWest"]
+position = Vector2(16, 324)
+shape = SubResource("RectangleShape2D_wall_west")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallWest"]
+offset_right = 32.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallSouth" type="StaticBody2D" parent="Walls" unique_id=1366872923]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallSouth"]
+position = Vector2(576, 632)
+shape = SubResource("RectangleShape2D_wall_south")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallSouth"]
+offset_top = 616.0
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallNorthLeft" type="StaticBody2D" parent="Walls" unique_id=1643406561]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthLeft"]
+position = Vector2(268, 16)
+shape = SubResource("RectangleShape2D_wall_north_left")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthLeft"]
+offset_right = 536.0
+offset_bottom = 32.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallNorthRight" type="StaticBody2D" parent="Walls" unique_id=616536929]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallNorthRight"]
+position = Vector2(884, 16)
+shape = SubResource("RectangleShape2D_wall_north_right")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallNorthRight"]
+offset_left = 616.0
+offset_right = 1152.0
+offset_bottom = 32.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallEastTop" type="StaticBody2D" parent="Walls" unique_id=488411285]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastTop"]
+position = Vector2(1136, 142)
+shape = SubResource("RectangleShape2D_wall_east_top")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEastTop"]
+offset_left = 1120.0
+offset_right = 1152.0
+offset_bottom = 284.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="WallEastBottom" type="StaticBody2D" parent="Walls" unique_id=74239333]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/WallEastBottom"]
+position = Vector2(1136, 506)
+shape = SubResource("RectangleShape2D_wall_east_bottom")
+
+[node name="WallVisual" type="ColorRect" parent="Walls/WallEastBottom"]
+offset_left = 1120.0
+offset_top = 364.0
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.2, 0.15, 0.1, 1)
+
+[node name="Objects" type="Node2D" parent="." unique_id=745857423]
+
+[node name="Sink" type="StaticBody2D" parent="Objects" unique_id=1890730942]
+position = Vector2(80, 200)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Sink"]
+offset_left = -40.0
+offset_top = -30.0
+offset_right = 40.0
+offset_bottom = 30.0
+color = Color(0.9, 0.9, 0.9, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Sink" unique_id=2014930806]
+shape = SubResource("RectangleShape2D_sink_col")
+
+[node name="SinkInteractable" type="Area2D" parent="Objects/Sink" unique_id=1993602937]
+script = ExtResource("1")
+interaction_id = "sink_bathroom"
+interaction_text = "I don't need to wash my hands right now."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Sink/SinkInteractable" unique_id=1336011573]
+shape = SubResource("RectangleShape2D_sink_zone")
+
+[node name="Toilet" type="StaticBody2D" parent="Objects" unique_id=377426344]
+position = Vector2(200, 580)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Toilet"]
+offset_left = -30.0
+offset_top = -40.0
+offset_right = 30.0
+offset_bottom = 40.0
+color = Color(0.95, 0.95, 0.95, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Toilet" unique_id=35524982]
+shape = SubResource("RectangleShape2D_toilet_col")
+
+[node name="ToiletInteractable" type="Area2D" parent="Objects/Toilet" unique_id=1551047354]
+script = ExtResource("1")
+interaction_id = "toilet"
+interaction_text = "I don't need to go right now."
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Toilet/ToiletInteractable" unique_id=1737337997]
+shape = SubResource("RectangleShape2D_toilet_zone")
+
+[node name="Shower" type="StaticBody2D" parent="Objects" unique_id=1731083950]
+position = Vector2(900, 580)
+
+[node name="WallVisual" type="ColorRect" parent="Objects/Shower"]
+offset_left = -60.0
+offset_top = -40.0
+offset_right = 60.0
+offset_bottom = 40.0
+color = Color(0.6, 0.75, 0.8, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Shower" unique_id=1633010504]
+shape = SubResource("RectangleShape2D_shower_col")
+
+[node name="ShowerInteractable" type="Area2D" parent="Objects/Shower" unique_id=1193905400]
+script = ExtResource("1")
+interaction_id = "shower"
+interaction_text = "I didn't leave the curtain drawn."
+choice_options = ["Open", "Leave alone"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/Shower/ShowerInteractable" unique_id=638503071]
+shape = SubResource("RectangleShape2D_shower_zone")
+
+[node name="FloppyDisk" type="Area2D" parent="Objects" unique_id=1096908721]
+visible = false
+position = Vector2(820, 570)
+script = ExtResource("1")
+interaction_id = "floppy_run"
+interaction_text = "RUN.EXE — a floppy disk."
+
+[node name="WallVisual" type="ColorRect" parent="Objects/FloppyDisk"]
+offset_left = -16.0
+offset_top = -16.0
+offset_right = 16.0
+offset_bottom = 16.0
+color = Color(0.1, 0.1, 0.1, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Objects/FloppyDisk" unique_id=1519602314]
+shape = SubResource("RectangleShape2D_floppy_zone")
+
+[node name="Doorways" type="Node2D" parent="." unique_id=934286481]
+
+[node name="NorthDoor" type="Area2D" parent="Doorways" unique_id=1511536462]
+position = Vector2(576, 16)
+script = ExtResource("2")
+destination_room = "living_room"
+entry_side = "south"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/NorthDoor" unique_id=886013694]
+shape = SubResource("RectangleShape2D_north_door")
+
+[node name="EastDoor" type="Area2D" parent="Doorways" unique_id=2082619218]
+position = Vector2(1136, 324)
+script = ExtResource("2")
+destination_room = "office"
+entry_side = "west"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Doorways/EastDoor" unique_id=1847513685]
+shape = SubResource("RectangleShape2D_east_door")
