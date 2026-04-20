@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="AestheticTier" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/aesthetic_tier.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+tier_name = "Gameboy"
+palette = Array[Color]([Color(0.058, 0.219, 0.058, 1), Color(0.188, 0.384, 0.188, 1), Color(0.545, 0.674, 0.058, 1), Color(0.607, 0.737, 0.058, 1)])
+pixel_scale = 6
+scanline_strength = 0.15
+scanline_frequency = 200.0

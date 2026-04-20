@@ -30,6 +30,7 @@ extends Node2D
 @onready var player: CharacterBody2D = $Player
 @onready var dialogue_box = $UI/DialogueBox
 @onready var mod_menu = $UI/ModMenu
+@onready var pause_menu = $PauseMenu
 @onready var interact_hint: Label = $UI/InteractHint
 
 # --- State ---
@@ -47,6 +48,18 @@ var _active_interactable: Interactable = null
 # should appear AFTER those pages are dismissed. Empty when nothing is pending.
 # Keys: "prompt" (String), "options" (Array).
 var _pending_choice: Dictionary = {}
+
+# The DialogueBox is shared between interactable dialog and the pause-menu
+# Save/Quit confirmation dialogs. This enum tells _on_choice_made and
+# _on_dialogue_dismissed which flow owns the currently visible box so they
+# route the response correctly. Reset to INTERACTABLE whenever a flow ends.
+enum DialogMode {
+	INTERACTABLE,        # Normal interactable dialog (the default)
+	PAUSE_SAVE_CONFIRM,  # "Save game? [Save] [Cancel]"
+	PAUSE_SAVE_RESULT,   # "Game saved." — single-page result shown after Save
+	PAUSE_QUIT_CONFIRM,  # "Quit to desktop? [Quit] [Cancel]"
+}
+var _dialog_mode: DialogMode = DialogMode.INTERACTABLE
 
 
 func _ready() -> void:
@@ -67,12 +80,35 @@ func _ready() -> void:
 	# Wire up mod menu close signal.
 	mod_menu.closed.connect(_on_mod_menu_closed)
 
+	# Pause menu signal: option_selected fires with the chosen option id
+	# ("resume", "save", "quit_game"). Routing happens in _on_pause_option.
+	pause_menu.option_selected.connect(_on_pause_option)
+
 	interact_hint.visible = false
+
+	# If the player is re-entering the Real World by exiting the RPG (from the
+	# pause menu's "Exit RPG" option), spawn them standing next to the PC in
+	# the Office instead of the default Living Room center. The flag is a
+	# one-shot — we clear it immediately so normal starts aren't affected.
+	if GameManager.get_flag("returning_from_rpg"):
+		GameManager.set_flag("returning_from_rpg", false)
+		_spawn_player_near_pc()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Don't intercept input while a UI panel is already open.
-	if dialogue_box.is_open() or mod_menu.is_open():
+	# Pause (Escape) is handled first so the player can always open the pause
+	# menu from normal exploration. We deliberately don't let pause open while
+	# another UI panel (dialogue, mod menu, or pause menu itself) is already
+	# up, to avoid stacking overlays on top of each other.
+	if event.is_action_pressed("pause"):
+		if not (dialogue_box.is_open() or mod_menu.is_open() or pause_menu.is_open()):
+			_open_pause_menu()
+			get_viewport().set_input_as_handled()
+		return
+
+	# Don't intercept input while a UI panel is already open. The pause menu,
+	# dialogue box, and mod menu each handle their own input.
+	if dialogue_box.is_open() or mod_menu.is_open() or pause_menu.is_open():
 		return
 
 	if event.is_action_pressed("ui_accept") and current_interactable != null:
@@ -193,6 +229,12 @@ func _handle_interaction(target: Interactable) -> void:
 
 
 func _on_dialogue_dismissed() -> void:
+	# Pause-flow "Game saved." result dismissal: end the Save flow cleanly.
+	if _dialog_mode == DialogMode.PAUSE_SAVE_RESULT:
+		_dialog_mode = DialogMode.INTERACTABLE
+		player.process_mode = Node.PROCESS_MODE_INHERIT
+		return
+
 	# If flavor text just finished and a choice menu is queued up (set by
 	# _handle_interaction for objects with pages + choices), switch to the
 	# choice menu now. Do NOT unfreeze the player — the interaction isn't
@@ -217,6 +259,30 @@ func _on_dialogue_dismissed() -> void:
 
 
 func _on_choice_made(index: int) -> void:
+	# Pause-flow dialogs come through the same DialogueBox as interactable
+	# choices, so we branch on _dialog_mode first. When one of these flows
+	# fires, we fully handle it here and return early so the interactable
+	# match-block below never runs.
+	match _dialog_mode:
+		DialogMode.PAUSE_SAVE_CONFIRM:
+			if index == 0: # Save
+				SaveSystem.save_game()
+				_dialog_mode = DialogMode.PAUSE_SAVE_RESULT
+				dialogue_box.show_text("Game saved.")
+			else: # Cancel
+				_dialog_mode = DialogMode.INTERACTABLE
+				player.process_mode = Node.PROCESS_MODE_INHERIT
+			return
+		DialogMode.PAUSE_QUIT_CONFIRM:
+			if index == 0: # Quit
+				get_tree().quit()
+			else: # Cancel
+				_dialog_mode = DialogMode.INTERACTABLE
+				player.process_mode = Node.PROCESS_MODE_INHERIT
+			return
+		_:
+			pass  # Fall through to the interactable logic below.
+
 	var id: String = _active_interactable.interaction_id if _active_interactable else ""
 
 	match id:
@@ -309,3 +375,55 @@ func _find_interactable_by_id(id: String):
 
 func _on_mod_menu_closed() -> void:
 	player.process_mode = Node.PROCESS_MODE_INHERIT
+
+
+# --- Pause Menu ---
+
+# Freezes the player and opens the pause menu with Real World options.
+# "Quit Game" only exists here (not in the RPG pause menu) because the
+# fiction is: you're in your house, you can close the game. Inside the
+# RPG you just exit the RPG.
+func _open_pause_menu() -> void:
+	player.process_mode = Node.PROCESS_MODE_DISABLED
+	pause_menu.open([
+		{"id": "resume",    "label": "Resume"},
+		{"id": "save",      "label": "Save"},
+		{"id": "quit_game", "label": "Quit Game"},
+	])
+
+
+# Fires when the player picks something from the pause menu. "resume" and
+# the "Cancel" buttons in subsequent confirm dialogs all funnel back to the
+# same "unfreeze the player, reset dialog mode" outcome.
+func _on_pause_option(id: String) -> void:
+	match id:
+		"resume":
+			# No confirmation needed — just restore control.
+			player.process_mode = Node.PROCESS_MODE_INHERIT
+		"save":
+			# Two-step: show a confirmation via the existing DialogueBox.
+			# _on_choice_made routes the response based on _dialog_mode.
+			_dialog_mode = DialogMode.PAUSE_SAVE_CONFIRM
+			dialogue_box.show_choice("Save game?", ["Save", "Cancel"])
+		"quit_game":
+			_dialog_mode = DialogMode.PAUSE_QUIT_CONFIRM
+			dialogue_box.show_choice(
+				"Quit to desktop? Unsaved progress will be lost.",
+				["Quit", "Cancel"]
+			)
+
+
+# Places the player just south of the PC in the Office, facing it. Called
+# on startup when the player has just exited the RPG via the pause menu.
+# We search for the PC interactable by id so this keeps working even if
+# the office layout moves — nothing here is hardcoded to a specific room
+# position beyond "stand 80 pixels south of wherever the PC lives".
+func _spawn_player_near_pc() -> void:
+	var pc: Interactable = _find_interactable_by_id("pc")
+	if pc == null:
+		# Shouldn't happen in a well-formed world, but log it so a missing
+		# PC doesn't silently strand the player in the living room.
+		push_warning("ground_floor._spawn_player_near_pc: no Interactable with id 'pc' found")
+		return
+	# global_position so we don't have to reason about the office's world offset.
+	player.global_position = pc.global_position + Vector2(0, 80)

@@ -42,12 +42,25 @@ func _ready() -> void:
 	_load_world(GameManager.current_world)
 
 
-# Watches for the debug Tab key.
+# Watches for debug keys:
+#   Tab      — toggle between Real World and RPG
+#   F1/F2/F3 — force the RPG aesthetic tier to Gameboy / NES / SNES
 # _unhandled_input fires only if no other node has already handled the event,
-# which means active scenes can intercept Tab first if they need to.
+# which means active scenes can intercept these first if they need to.
+# These shortcuts are intended for Phase 2 testing only — they'll be removed
+# in Phase 4 once mods take over tier control.
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("debug_toggle_world"):
 		GameManager.toggle_world()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("debug_tier_gameboy"):
+		Aesthetic.set_tier(Aesthetic.Tier.GAMEBOY)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("debug_tier_nes"):
+		Aesthetic.set_tier(Aesthetic.Tier.NES)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("debug_tier_snes"):
+		Aesthetic.set_tier(Aesthetic.Tier.SNES)
 		get_viewport().set_input_as_handled()
 
 

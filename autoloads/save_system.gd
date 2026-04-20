@@ -18,15 +18,22 @@ const SAVE_PATH: String = "user://savegame.save"
 
 
 # Save all game state to disk.
-# Phase 0 stub — will be filled in once RPG/Real World state exists to save.
-func save_game() -> void:
-	push_warning("SaveSystem.save_game() not yet implemented (Phase 0 stub)")
+# Phase 2 stub: returns true to indicate "success" so the pause menu's Save
+# flow can proceed end-to-end (player sees "Game saved.") even though nothing
+# is actually written yet. The real implementation lands after Phase 3, once
+# RPG state exists to save — at which point only the body of this function
+# changes; no caller of save_game() needs to be updated.
+func save_game() -> bool:
+	push_warning("SaveSystem.save_game() is a stub — no data persisted yet")
+	return true
 
 
 # Load game state from disk and restore it to the relevant systems.
-# Phase 0 stub.
-func load_game() -> void:
-	push_warning("SaveSystem.load_game() not yet implemented (Phase 0 stub)")
+# Phase 2 stub: returns false (no save present / not supported yet) so any
+# future "Continue" menu option gracefully falls back to a new game.
+func load_game() -> bool:
+	push_warning("SaveSystem.load_game() is a stub — no data restored")
+	return false
 
 
 # Check if a save file exists on disk. Used by the main menu to

@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="AestheticTier" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://resources/aesthetic_tier.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+tier_name = "SNES"
+palette = Array[Color]([Color(0.08, 0.08, 0.12, 1), Color(0.98, 0.98, 0.96, 1), Color(0.35, 0.35, 0.40, 1), Color(0.65, 0.65, 0.70, 1), Color(0.82, 0.18, 0.22, 1), Color(0.98, 0.48, 0.52, 1), Color(0.18, 0.38, 0.82, 1), Color(0.48, 0.72, 0.98, 1), Color(0.22, 0.62, 0.32, 1), Color(0.55, 0.88, 0.55, 1), Color(0.95, 0.78, 0.28, 1), Color(0.98, 0.92, 0.58, 1), Color(0.62, 0.32, 0.78, 1), Color(0.88, 0.62, 0.95, 1), Color(0.85, 0.55, 0.32, 1), Color(0.52, 0.35, 0.22, 1)])
+pixel_scale = 1
+scanline_strength = 0.12
+scanline_frequency = 400.0

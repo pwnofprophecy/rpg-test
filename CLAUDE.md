@@ -39,10 +39,11 @@ The game is split across two "worlds":
 The SceneManager (`scenes/main.gd`) is the root scene and swaps between them based on `GameManager.current_world`. Autoloads persist across world switches, so global state survives transitions.
 
 ## Autoloads
-Three singletons are registered in `project.godot`:
+Four singletons are registered in `project.godot`:
 - **GameManager** — current world, progression flags, world-switching API (`switch_to_world`, `toggle_world`)
 - **ModManager** — mod registry with `found` / `active` state, emits `mod_found` / `mod_activated` / `mod_deactivated` signals
-- **SaveSystem** — save/load API (stub until Phase 2+)
+- **SaveSystem** — save/load API (stub; `save_game()` returns `true`, `load_game()` returns `false`. Real implementation lands after Phase 3.)
+- **Aesthetic** — current RPG visual tier (Gameboy / NES / SNES), emits `tier_changed(new_tier)`. See "Aesthetic Tier System" below.
 
 ## Coding Conventions
 - Use `class_name` declarations for scripts that are reused across scenes.
@@ -71,6 +72,30 @@ The user arranges objects, collision shapes, sprites, doorways, walls, and other
 - **Do NOT "restore" prior positions** from memory, plan files, or git history — if the user moved something, the new location is the canonical one.
 - If a task genuinely requires moving something the user has placed (e.g. a new feature only works if a collision shape is resized), **stop and ask for permission first**, describing exactly what needs to move and why.
 - Editing scripts, adding new nodes the user hasn't placed, changing `interaction_text` / `interaction_id` / other script-level properties, and fixing obvious bugs are all still fair game without asking.
+
+## Aesthetic Tier System
+The RPG (not the Real World) has a **visual tier** that controls its look: Gameboy, NES, or SNES. The system is designed so that both Phase 2 code and future assets/mods hook in the same way.
+
+**Data flow**:
+1. Each tier is an `AestheticTier` Resource (`res://resources/aesthetic_tier.gd`) with palette, pixel scale, and scanline params. Instances live at `res://resources/tiers/gameboy.tres`, `nes.tres`, `snes.tres`.
+2. The `Aesthetic` autoload holds `current_tier` (enum) and maps each tier to its Resource. Emits `tier_changed(new_tier)` on change.
+3. The RPG overworld (`scenes/rpg/rpg_overworld.gd`) listens to `tier_changed`, reads the active tier's Resource from `Aesthetic.get_palette()`, and pushes palette + shader params into the full-screen `TierOverlay` ColorRect's ShaderMaterial.
+4. The overlay shader (`res://scenes/rpg/shaders/tier_overlay.gdshader`) pixelates, palette-quantizes, and scanlines the entire RPG image every frame — this is the single mechanism that makes tiers visually distinct.
+
+**Changing tier at runtime**: call `Aesthetic.set_tier(Aesthetic.Tier.NES)`. No-op if already on that tier. Debug keys `F1`/`F2`/`F3` cycle through tiers for Phase 2 testing (remove in Phase 4 once mods control tier).
+
+**Adding a new tier later**: create a new `.tres` under `res://resources/tiers/`, add an enum entry in `autoloads/aesthetic.gd`, add it to the `_TIER_RESOURCES` dictionary. No other code changes.
+
+**When real sprite/tile assets arrive**: extend `AestheticTier` with `@export var tileset: TileSet`, `@export var font: Font`, etc. The signal + autoload pattern doesn't change — new fields just mean more data on each tier change.
+
+**Shader limits**: the overlay shader's palette array is fixed at 16 entries (GLSL compile-time requirement). Palettes with more entries are clipped with a warning. Palettes with fewer are fine.
+
+## Pause Menu Pattern
+`scenes/ui/pause_menu.tscn` is a shared CanvasLayer instanced in each world. Each world passes its own option list into `pause_menu.open([...])` and listens to `option_selected(id)`. Routing (what "Save" does, whether "Exit RPG" shows) is the caller's responsibility — the menu is just a presenter.
+
+**Important**: the pause menu has `process_mode = PROCESS_MODE_ALWAYS` so it keeps running when the tree is paused. The RPG pauses the tree on open; the Real World disables the player's process mode instead. Both approaches work with the same menu.
+
+`Escape` (bound to the `pause` input action) opens it. `Escape` or `Backspace` while open closes it.
 
 ## Communication Style
 - The user is a novice — explain what you're doing and why in detail as you work.

@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/real_world/rooms/kitchen.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/real_world/rooms/bathroom.tscn" id="7"]
 [ext_resource type="PackedScene" path="res://scenes/real_world/rooms/office.tscn" id="8"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="9"]
 
 [sub_resource type="RectangleShape2D" id="PlayerShape"]
 size = Vector2(28, 44)
@@ -56,6 +57,8 @@ limit_bottom = 1296
 [node name="DialogueBox" parent="UI" instance=ExtResource("3")]
 
 [node name="ModMenu" parent="UI" instance=ExtResource("4")]
+
+[node name="PauseMenu" parent="." instance=ExtResource("9")]
 
 [node name="InteractHint" type="Label" parent="UI"]
 anchors_preset = 7
