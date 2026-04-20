@@ -1,46 +1,38 @@
 # ground_floor.gd
 # The root script for the Real World ground floor. It owns:
-#   - The player character
-#   - The room currently being displayed
+#   - The player character (with a follow-camera)
+#   - All four rooms, laid out side-by-side in one continuous world
 #   - The dialogue box and mod menu UI
 #
-# Its main responsibilities are:
-#   1. Loading rooms and repositioning the player when they walk through a doorway.
-#   2. Tracking which interactable object the player is standing next to.
-#   3. Showing the dialogue box or mod menu when the player presses Enter.
-#   4. Routing the player's choices (PC menu, shower curtain, floppy pickup) to
+# Architecture note:
+# Earlier versions loaded one room at a time into a RoomContainer and swapped
+# scenes when the player walked through a doorway. We switched to a single
+# continuous world: the four room scenes are instanced as siblings at fixed
+# world offsets (see ground_floor.tscn) and the camera follows the player
+# across them. No runtime scene swapping. Doorway Area2D triggers still exist
+# in the room scenes but we intentionally do NOT connect them here — the
+# rooms are already physically connected, so walking through a gap needs no
+# code to run.
+#
+# Responsibilities:
+#   1. On startup, wire up Interactable signals across every room and apply
+#      any persistent progression state (shower already opened, floppy already
+#      picked up, etc.).
+#   2. Track which interactable the player is standing next to.
+#   3. Show the dialogue box or mod menu when the player presses Enter.
+#   4. Route the player's choices (PC menu, shower curtain, floppy pickup) to
 #      the right outcome.
 
 extends Node2D
 
-# --- Room Scenes ---
-# All four rooms preloaded so switching between them is instant.
-const ROOMS: Dictionary = {
-	"living_room": preload("res://scenes/real_world/rooms/living_room.tscn"),
-	"kitchen":     preload("res://scenes/real_world/rooms/kitchen.tscn"),
-	"office":      preload("res://scenes/real_world/rooms/office.tscn"),
-	"bathroom":    preload("res://scenes/real_world/rooms/bathroom.tscn"),
-}
-
-# Where to spawn the player depending on which side of the room they entered from.
-# "entering from east" means they came through the east doorway, so we place
-# them just inside the east edge of the new room.
-const ENTRY_POSITIONS: Dictionary = {
-	"north": Vector2(576, 70),
-	"south": Vector2(576, 578),
-	"east":  Vector2(1082, 324),
-	"west":  Vector2(70, 324),
-}
-
 # --- Node References ---
-@onready var room_container: Node = $RoomContainer
+@onready var rooms: Node2D = $Rooms
 @onready var player: CharacterBody2D = $Player
 @onready var dialogue_box = $UI/DialogueBox
 @onready var mod_menu = $UI/ModMenu
 @onready var interact_hint: Label = $UI/InteractHint
 
 # --- State ---
-var current_room_name: String = "living_room"
 # The Interactable node the player is currently standing next to, or null.
 var current_interactable = null
 # The Interactable that opened the currently visible dialog. Set when dialog opens,
@@ -58,8 +50,15 @@ var _pending_choice: Dictionary = {}
 
 
 func _ready() -> void:
-	# Start in the Living Room. Passing "" as entry_side centers the player.
-	_load_room("living_room", "")
+	# Connect Interactable signals for every room in the world. Because all
+	# rooms are loaded up-front as siblings under $Rooms, we do this once at
+	# startup instead of on every room transition.
+	_connect_all_interactables()
+
+	# Apply persistent progression flags (shower opened, floppy picked up, …)
+	# to the live scene tree. Same reasoning as above: one pass at startup
+	# instead of per-load.
+	_apply_persistent_state()
 
 	# Wire up dialogue box signals.
 	dialogue_box.dismissed.connect(_on_dialogue_dismissed)
@@ -81,77 +80,42 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-# --- Room Loading ---
+# --- Signal Wiring ---
 
-func _load_room(room_name: String, entry_side: String) -> void:
-	# Remove the old room.
-	for child in room_container.get_children():
-		child.queue_free()
-
-	current_interactable = null
-	_active_interactable = null
-	_pending_choice = {}
-	interact_hint.visible = false
-
-	# Instantiate the new room and add it.
-	var room_instance: Node2D = ROOMS[room_name].instantiate()
-	room_container.add_child(room_instance)
-	current_room_name = room_name
-
-	# Connect all Interactable and Doorway signals in the new room.
-	_connect_room_signals(room_instance)
-
-	# Apply any persistent state for this room (e.g. shower already opened,
-	# floppy already picked up). This has to happen AFTER instantiation so we
-	# can mutate the fresh nodes, not the packed scene.
-	_apply_persistent_state(room_name, room_instance)
-
-	# Place the player at the correct spawn point.
-	if entry_side != "" and ENTRY_POSITIONS.has(entry_side):
-		player.position = ENTRY_POSITIONS[entry_side]
-	else:
-		player.position = Vector2(576, 324)
-
-
-# Walks every descendant of the new room and connects signals on Interactable
-# and Doorway nodes. We recurse because objects are nested several levels deep.
-func _connect_room_signals(room: Node2D) -> void:
-	for node in _get_all_children(room):
+# Walks every descendant of $Rooms and connects player_entered_zone /
+# player_left_zone for each Interactable. Doorway nodes are intentionally
+# ignored — rooms are physically continuous now, no scene-swap needed.
+func _connect_all_interactables() -> void:
+	for node in _get_all_children(rooms):
 		if node is Interactable:
 			node.player_entered_zone.connect(_on_player_entered_zone)
 			node.player_left_zone.connect(_on_player_left_zone)
-		elif node is Doorway:
-			# bind(node) packages the Doorway reference into the callback so we
-			# know which doorway triggered the event.
-			node.body_entered.connect(_on_doorway_entered.bind(node))
 
 
 # Reads persistent flags from GameManager and mutates the freshly-instanced
-# room to match. Called every time a room is loaded, so returning to a room
-# after a change preserves that change.
-func _apply_persistent_state(room_name: String, room: Node2D) -> void:
-	if room_name == "bathroom":
-		# Case 1: the player already opened the shower curtain at some point.
-		# Replace the shower's "Open / Leave alone" dialog with a plain message
-		# that just says the curtain is already drawn back.
-		if GameManager.get_flag("shower_opened"):
-			var shower: Interactable = _find_node_by_id(room, "shower")
-			if shower != null:
-				_apply_shower_opened_state(shower)
+# scene tree to match. Called once at startup.
+func _apply_persistent_state() -> void:
+	# Case 1: the player already opened the shower curtain at some point.
+	# Replace the shower's "Open / Leave alone" dialog with its secondary
+	# (already-opened) dialog.
+	if GameManager.get_flag("shower_opened"):
+		var shower: Interactable = _find_interactable_by_id("shower")
+		if shower != null:
+			_apply_shower_opened_state(shower)
 
-			# If the floppy is still in the world (not yet picked up), reveal it
-			# so the player sees it sitting there on their return trip.
-			if not GameManager.get_flag("floppy_picked_up"):
-				var floppy: Interactable = _find_node_by_id(room, "floppy_run")
-				if floppy != null:
-					floppy.visible = true
-
-		# Case 2: the player already picked up the floppy. Remove it from the
-		# scene entirely so it can't be picked up again.
-		if GameManager.get_flag("floppy_picked_up"):
-			var floppy: Interactable = _find_node_by_id(room, "floppy_run")
+		# If the floppy is still in the world (not yet picked up), reveal it
+		# so the player sees it sitting there.
+		if not GameManager.get_flag("floppy_picked_up"):
+			var floppy: Interactable = _find_interactable_by_id("floppy_run")
 			if floppy != null:
-				floppy.queue_free()
+				floppy.visible = true
+
+	# Case 2: the player already picked up the floppy. Remove it from the
+	# scene entirely so it can't be picked up again.
+	if GameManager.get_flag("floppy_picked_up"):
+		var floppy: Interactable = _find_interactable_by_id("floppy_run")
+		if floppy != null:
+			floppy.queue_free()
 
 
 # Returns every descendant of a node as a flat array (recursive).
@@ -168,7 +132,7 @@ func _get_all_children(node: Node) -> Array:
 func _on_player_entered_zone(which: Interactable) -> void:
 	# is_visible_in_tree() checks both the node's own visibility AND all its
 	# ancestors — important for the FloppyDisk (visible=false until shower opened)
-	# and for ShowerInteractable (its parent StaticBody2D gets hidden after opening).
+	# and for any Interactable whose parent has been hidden.
 	if not which.is_visible_in_tree():
 		return
 	current_interactable = which
@@ -179,16 +143,6 @@ func _on_player_left_zone(which: Interactable) -> void:
 	if current_interactable == which:
 		current_interactable = null
 		interact_hint.visible = false
-
-
-# --- Doorway Handling ---
-
-func _on_doorway_entered(body: Node2D, doorway: Doorway) -> void:
-	if not body.is_in_group("player"):
-		return
-	# call_deferred prevents crashing from modifying the scene tree while a
-	# physics callback is still running.
-	call_deferred("_load_room", doorway.destination_room, doorway.entry_side)
 
 
 # --- Interaction Routing ---
@@ -291,23 +245,21 @@ func _on_choice_made(index: int) -> void:
 # Reveals the floppy disk, rewrites the shower's interaction to its post-reveal
 # state, and shows the discovery message.
 func _open_shower_curtain() -> void:
-	# Record that the shower has been opened, so returning to the bathroom
-	# later loads it in the already-opened state.
+	# Record that the shower has been opened, so restarting the game loads it
+	# in the already-opened state.
 	GameManager.set_flag("shower_opened", true)
 
-	var room: Node2D = room_container.get_child(0)
-
 	# Rewrite the shower Interactable in-place so the player can still interact
-	# with it (now seeing the post-reveal text) without having to leave and
-	# come back. _apply_persistent_state sets the same values on future room
-	# loads; _apply_shower_opened_state is the single source of truth.
-	var shower_interactable: Interactable = _find_node_by_id(room, "shower")
+	# with it (now seeing the post-reveal text). _apply_persistent_state sets
+	# the same values on future startups; _apply_shower_opened_state is the
+	# single source of truth.
+	var shower_interactable: Interactable = _find_interactable_by_id("shower")
 	if shower_interactable != null:
 		_apply_shower_opened_state(shower_interactable)
 
 	# The FloppyDisk is the Interactable node itself (not a child of a StaticBody2D),
 	# so we show the node directly.
-	var floppy: Node = _find_node_by_id(room, "floppy_run")
+	var floppy: Node = _find_interactable_by_id("floppy_run")
 	if floppy != null:
 		floppy.visible = true
 
@@ -327,8 +279,8 @@ func _open_shower_curtain() -> void:
 
 # Mutates a shower Interactable into its "already opened" state. Called from
 # both _open_shower_curtain (same-session reveal) and _apply_persistent_state
-# (room re-entry), so the two code paths can never disagree about what the
-# opened shower says.
+# (startup after a prior session), so the two code paths can never disagree
+# about what the opened shower says.
 #
 # The actual post-reveal dialog is authored in the Godot Inspector on the
 # ShowerInteractable node itself, via the secondary_text / secondary_pages /
@@ -344,9 +296,10 @@ func _apply_shower_opened_state(shower: Interactable) -> void:
 	shower.choice_options = shower.secondary_choice_options.duplicate()
 
 
-# Searches all descendants of root for an Interactable with the given interaction_id.
-func _find_node_by_id(root: Node, id: String):
-	for node in _get_all_children(root):
+# Searches every room for an Interactable with the given interaction_id.
+# Returns null if not found.
+func _find_interactable_by_id(id: String):
+	for node in _get_all_children(rooms):
 		if node is Interactable and node.interaction_id == id:
 			return node
 	return null
