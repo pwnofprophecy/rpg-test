@@ -39,11 +39,12 @@ The game is split across two "worlds":
 The SceneManager (`scenes/main.gd`) is the root scene and swaps between them based on `GameManager.current_world`. Autoloads persist across world switches, so global state survives transitions.
 
 ## Autoloads
-Four singletons are registered in `project.godot`:
+Five singletons are registered in `project.godot`:
 - **GameManager** — current world, progression flags, world-switching API (`switch_to_world`, `toggle_world`)
 - **ModManager** — mod registry with `found` / `active` state, emits `mod_found` / `mod_activated` / `mod_deactivated` signals
 - **SaveSystem** — save/load API (stub; `save_game()` returns `true`, `load_game()` returns `false`. Real implementation lands after Phase 3.)
 - **Aesthetic** — current RPG visual tier (Gameboy / NES / SNES), emits `tier_changed(new_tier)`. See "Aesthetic Tier System" below.
+- **RPGState** — Hero's runtime stats (hp/mp/attack/defense/speed/xp/gold/status_effects) plus `character_name`. Seeded from `res://resources/hero_stats.tres` on `_ready()` via `reset_from_template()`. Emits `stats_changed`. See "Hero Stats Pattern" below.
 
 ## Coding Conventions
 - Use `class_name` declarations for scripts that are reused across scenes.
@@ -90,12 +91,26 @@ The RPG (not the Real World) has a **visual tier** that controls its look: Gameb
 
 **Shader limits**: the overlay shader's palette array is fixed at 16 entries (GLSL compile-time requirement). Palettes with more entries are clipped with a warning. Palettes with fewer are fine.
 
+## Hero Stats Pattern
+The Hero's stats live on the **RPGState** autoload (runtime state) and are seeded from **`res://resources/hero_stats.tres`** (template/starting values).
+
+**Why split template from runtime?**
+- The `.tres` is the "new game" default. It's Inspector-editable (double-click in the FileSystem dock) — designers tune starting HP/attack/etc. there without code.
+- The autoload holds the live values that battles and abilities mutate during play. Resetting to template is a one-line call: `RPGState.reset_from_template()`.
+- SaveSystem (post-Phase 3) will serialize the autoload's fields directly, ignoring the `.tres` once a save exists.
+
+**Fields** (both on `HeroStats` Resource and RPGState autoload): `character_name`, `max_hp`/`hp`, `max_mp`/`mp`, `attack`, `defense`, `speed`, `intelligence` (scales spell power + MP pool), `luck` (crit chance + loot drops), `level`, `xp`, `gold`, `status_effects: Array[String]`.
+
+**Status effects**: plumbing-only until battles are wired. Use `add_status(name)` / `remove_status(name)` / `has_status(name)` / `clear_statuses()` on RPGState — they emit `stats_changed` so UI refreshes without polling.
+
+**Name entry**: `RPGState.character_name == ""` is the sentinel for "hasn't been named yet." `scenes/rpg/name_entry.tscn` is shown by `rpg_overworld.gd` on first RPG entry, writes the name into RPGState, and self-removes. Empty input falls back to `"HERO"`.
+
 ## Pause Menu Pattern
 `scenes/ui/pause_menu.tscn` is a shared CanvasLayer instanced in each world. Each world passes its own option list into `pause_menu.open([...])` and listens to `option_selected(id)`. Routing (what "Save" does, whether "Exit RPG" shows) is the caller's responsibility — the menu is just a presenter.
 
 **Important**: the pause menu has `process_mode = PROCESS_MODE_ALWAYS` so it keeps running when the tree is paused. The RPG pauses the tree on open; the Real World disables the player's process mode instead. Both approaches work with the same menu.
 
-`Escape` (bound to the `pause` input action) opens it. `Escape` or `Backspace` while open closes it.
+`Escape` (bound to the `pause` input action) opens it. `Escape` while open closes it. (`ui_cancel` is also bound to Escape as of Phase 3a so that LineEdit-based inputs like the name entry prompt can use Backspace for text editing.)
 
 ## Communication Style
 - The user is a novice — explain what you're doing and why in detail as you work.
