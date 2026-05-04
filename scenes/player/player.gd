@@ -14,10 +14,15 @@ func _ready() -> void:
 	# us with body.is_in_group("player") instead of checking the class type.
 	# This is safer — it won't accidentally trigger on other CharacterBody2D nodes.
 	add_to_group("player")
-	# Ensure we render on top of room contents.
-	z_index = 10
 	# Force a redraw so _draw() runs.
 	queue_redraw()
+
+
+# Keep the player's render order in sync with their world Y position so
+# they correctly draw behind objects that are south of them and in front
+# of objects north of them. See scripts/y_sorter.gd for the rationale.
+func _process(_delta: float) -> void:
+	z_index = int(global_position.y)
 
 
 # _draw() is called by Godot when the node needs to render itself.

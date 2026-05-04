@@ -1,0 +1,29 @@
+[gd_scene format=3 uid="uid://v1rtfk2mpjh8"]
+
+[ext_resource type="Script" uid="uid://bblc5huxrtkt7" path="res://scripts/y_sorter.gd" id="1_wlepe"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0e4n2"]
+size = Vector2(40, 40)
+
+[node name="Tree01" type="StaticBody2D" unique_id=603177599]
+y_sort_enabled = true
+script = ExtResource("1_wlepe")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=185251221]
+position = Vector2(0, -12)
+shape = SubResource("RectangleShape2D_0e4n2")
+
+[node name="Stump" type="ColorRect" parent="." unique_id=1627838378]
+offset_left = -20.0
+offset_top = -44.0
+offset_right = 20.0
+offset_bottom = 16.0
+mouse_filter = 2
+color = Color(0.4392157, 0.3529412, 0.105882354, 1)
+metadata/_edit_use_anchors_ = true
+
+[node name="Foliage" type="Polygon2D" parent="." unique_id=1372346982]
+z_index = 1
+position = Vector2(0, -48)
+color = Color(0.22745098, 0.41960785, 0.14509805, 1)
+polygon = PackedVector2Array(-30, 20, 30, 20, 0, -30)

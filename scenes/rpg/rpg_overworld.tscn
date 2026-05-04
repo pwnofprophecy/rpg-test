@@ -1,23 +1,20 @@
 [gd_scene format=4 uid="uid://bmcyr7c0kxb3c"]
 
 [ext_resource type="PackedScene" uid="uid://ctkacwtuifasq" path="res://scenes/player/player.tscn" id="1"]
-[ext_resource type="Texture2D" uid="uid://80r5ov3bfi4f" path="res://assets/sprites/grass_tile.svg" id="2"]
+[ext_resource type="PackedScene" uid="uid://v1rtfk2mpjh8" path="res://scenes/rpg/props/tree.tscn" id="2_ynnp2"]
 [ext_resource type="Script" uid="uid://d0y0yg1ms3qkb" path="res://scenes/rpg/rpg_overworld.gd" id="3"]
 [ext_resource type="Shader" uid="uid://bfoxmtnva62uy" path="res://scenes/rpg/shaders/tier_overlay.gdshader" id="4"]
 [ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/ui/dialogue_box.tscn" id="6"]
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_top"]
-size = Vector2(1152, 16)
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_4sr7g"]
+size = Vector2(2304, 32)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_bottom"]
-size = Vector2(1152, 16)
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ynnp2"]
+size = Vector2(32, 1296)
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_left"]
-size = Vector2(16, 648)
-
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_right"]
-size = Vector2(16, 648)
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_kijac"]
+size = Vector2(32, 1296)
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_tier"]
 shader = ExtResource("4")
@@ -28,48 +25,119 @@ shader_parameter/scanline_strength = 0.2
 shader_parameter/scanline_frequency = 300.0
 
 [node name="RpgOverworld" type="Node2D" unique_id=630008899]
+y_sort_enabled = true
 script = ExtResource("3")
 min_steps_between_encounters = 20
 max_steps_between_encounters = 40
 
-[node name="Background" type="TextureRect" parent="." unique_id=1364129471]
-texture_repeat = 1
-offset_right = 1152.0
-offset_bottom = 648.0
-texture = ExtResource("2")
-stretch_mode = 1
+[node name="Ground" type="ColorRect" parent="." unique_id=1273001857]
+offset_right = 2304.0
+offset_bottom = 1296.0
+mouse_filter = 2
+color = Color(0.19906622, 0.45099723, 0.21726671, 1)
 
-[node name="Borders" type="Node2D" parent="." unique_id=1905142086]
+[node name="Paths" type="Node2D" parent="." unique_id=1535042236]
 
-[node name="TopWall" type="StaticBody2D" parent="Borders" unique_id=248534785]
-position = Vector2(576, -8)
+[node name="HorizontalPath" type="ColorRect" parent="Paths" unique_id=1323287760]
+offset_left = 640.0
+offset_top = 284.0
+offset_right = 2040.0
+offset_bottom = 364.0
+mouse_filter = 2
+color = Color(0.54509807, 0.43529412, 0.2784314, 1)
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/TopWall" unique_id=694381476]
-shape = SubResource("RectangleShape2D_top")
+[node name="VerticalPath" type="ColorRect" parent="Paths" unique_id=1726551280]
+offset_left = 1688.0
+offset_top = 284.0
+offset_right = 1768.0
+offset_bottom = 1084.0
+mouse_filter = 2
+color = Color(0.54509807, 0.43529412, 0.2784314, 1)
 
-[node name="BottomWall" type="StaticBody2D" parent="Borders" unique_id=1824192866]
-position = Vector2(576, 656)
+[node name="ForestSpur" type="ColorRect" parent="Paths" unique_id=646262016]
+offset_left = 720.0
+offset_top = 364.0
+offset_right = 800.0
+offset_bottom = 1044.0
+mouse_filter = 2
+color = Color(0.54509807, 0.43529412, 0.2784314, 1)
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/BottomWall" unique_id=1957742654]
-shape = SubResource("RectangleShape2D_bottom")
+[node name="Borders" type="Node2D" parent="." unique_id=681708921]
 
-[node name="LeftWall" type="StaticBody2D" parent="Borders" unique_id=1822390195]
-position = Vector2(-8, 324)
+[node name="TopBorder" type="StaticBody2D" parent="Borders" unique_id=624744220]
+position = Vector2(1152, -16)
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/LeftWall" unique_id=11417608]
-shape = SubResource("RectangleShape2D_left")
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/TopBorder" unique_id=1164132048]
+position = Vector2(0, 4)
+shape = SubResource("RectangleShape2D_4sr7g")
 
-[node name="RightWall" type="StaticBody2D" parent="Borders" unique_id=1854283610]
-position = Vector2(1160, 324)
+[node name="LeftBorder" type="StaticBody2D" parent="Borders" unique_id=539824306]
+position = Vector2(-16, 648)
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/RightWall" unique_id=191911838]
-shape = SubResource("RectangleShape2D_right")
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/LeftBorder" unique_id=1187055045]
+position = Vector2(0, 4)
+shape = SubResource("RectangleShape2D_ynnp2")
+
+[node name="RightBorder" type="StaticBody2D" parent="Borders" unique_id=403303896]
+position = Vector2(2320, 648)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/RightBorder" unique_id=1596212191]
+position = Vector2(0, 4)
+shape = SubResource("RectangleShape2D_kijac")
+
+[node name="BottomBorder" type="StaticBody2D" parent="Borders" unique_id=1221071282]
+position = Vector2(1152, 1312)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Borders/BottomBorder" unique_id=2011099125]
+shape = SubResource("RectangleShape2D_4sr7g")
+
+[node name="Obstacles" type="Node2D" parent="." unique_id=1273038720]
+y_sort_enabled = true
+
+[node name="Tree01" parent="Obstacles" unique_id=603177599 instance=ExtResource("2_ynnp2")]
+position = Vector2(664, 808)
+
+[node name="Tree02" parent="Obstacles" unique_id=1120723289 instance=ExtResource("2_ynnp2")]
+position = Vector2(568, 784)
+
+[node name="Tree03" parent="Obstacles" unique_id=1334247266 instance=ExtResource("2_ynnp2")]
+position = Vector2(600, 904)
+
+[node name="Tree04" parent="Obstacles" unique_id=644533099 instance=ExtResource("2_ynnp2")]
+position = Vector2(656, 1008)
+
+[node name="Tree05" parent="Obstacles" unique_id=1090290467 instance=ExtResource("2_ynnp2")]
+position = Vector2(864, 768)
+
+[node name="Tree06" parent="Obstacles" unique_id=1710987329 instance=ExtResource("2_ynnp2")]
+position = Vector2(888, 1040)
+
+[node name="Tree07" parent="Obstacles" unique_id=2138119064 instance=ExtResource("2_ynnp2")]
+position = Vector2(984, 936)
+
+[node name="Tree08" parent="Obstacles" unique_id=49356691 instance=ExtResource("2_ynnp2")]
+position = Vector2(840, 912)
+
+[node name="Tree09" parent="Obstacles" unique_id=1804863385 instance=ExtResource("2_ynnp2")]
+position = Vector2(952, 768)
+
+[node name="Tree10" parent="Obstacles" unique_id=130231251 instance=ExtResource("2_ynnp2")]
+position = Vector2(504, 984)
 
 [node name="Player" parent="." unique_id=776830296 instance=ExtResource("1")]
+y_sort_enabled = true
 position = Vector2(576, 324)
+
+[node name="Camera2D" type="Camera2D" parent="Player" unique_id=1299444274]
+limit_left = 0
+limit_top = 0
+limit_right = 2304
+limit_bottom = 1296
+position_smoothing_enabled = true
 
 [node name="TierOverlayLayer" type="CanvasLayer" parent="." unique_id=249507273]
 layer = 5
+visible = false
 
 [node name="TierOverlay" type="ColorRect" parent="TierOverlayLayer" unique_id=458333581]
 material = SubResource("ShaderMaterial_tier")
@@ -83,3 +151,9 @@ mouse_filter = 2
 [node name="PauseMenu" parent="." unique_id=1759277064 instance=ExtResource("5")]
 
 [node name="DialogueBox" parent="." unique_id=962633115 instance=ExtResource("6")]
+
+[node name="Tree01" parent="." unique_id=931367404 instance=ExtResource("2_ynnp2")]
+position = Vector2(456, 848)
+
+[node name="Tree02" parent="." unique_id=2062807778 instance=ExtResource("2_ynnp2")]
+position = Vector2(1056, 808)
