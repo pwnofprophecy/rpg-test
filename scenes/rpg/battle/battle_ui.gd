@@ -22,6 +22,8 @@ signal action_selected(action: String)
 @onready var menu_box: PanelContainer = $MenuBox
 @onready var player_hp_bar: ProgressBar = $PlayerHealthBar/HPBar
 @onready var enemy_hp_bar: ProgressBar = $EnemyHealthBar/HPBar
+@onready var player_name_label: Label = $PlayerHealthBar/NameLabel
+@onready var enemy_name_label: Label = $EnemyHealthBar/NameLabel
 
 # An array holding references to the four menu option labels,
 # in the order they appear in the 2x2 grid:
@@ -120,6 +122,30 @@ func update_player_hp(value: int) -> void:
 func update_enemy_hp(value: int) -> void:
 	enemy_hp_bar.value = value
 	_update_bar_color(enemy_hp_bar)
+
+
+# Sets the player's HP bar maximum so the fill ratio reflects real stats
+# (e.g. RPGState.max_hp of 30) instead of the placeholder 10 from the
+# .tscn. Call this BEFORE update_player_hp on first setup so the colour
+# calculation uses the right max.
+func set_player_max_hp(max_value: int) -> void:
+	player_hp_bar.max_value = max_value
+
+
+# Sets the enemy's HP bar maximum the same way.
+func set_enemy_max_hp(max_value: int) -> void:
+	enemy_hp_bar.max_value = max_value
+
+
+# Updates the displayed combatant names. battle.gd calls these from _ready
+# so the player's chosen character_name shows up instead of the .tscn
+# default ("HERO"), and the enemy name reflects whatever encounter spawned.
+func set_player_name(text: String) -> void:
+	player_name_label.text = text
+
+
+func set_enemy_name(text: String) -> void:
+	enemy_name_label.text = text
 
 
 # Changes a health bar's fill color based on how much HP remains.

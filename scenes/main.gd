@@ -24,6 +24,7 @@ const REAL_WORLD_SCENE: PackedScene = preload("res://scenes/real_world/ground_fl
 # here plus a match arm in _rpg_scene_for_location below.
 const RPG_OVERWORLD_SCENE: PackedScene = preload("res://scenes/rpg/rpg_overworld.tscn")
 const RPG_TOWN_SCENE: PackedScene = preload("res://scenes/rpg/rpg_town.tscn")
+const RPG_BATTLE_SCENE: PackedScene = preload("res://scenes/rpg/battle/battle.tscn")
 
 # Reference to the container node that holds the currently active world.
 # We'll add/remove children here whenever the world changes.
@@ -121,6 +122,8 @@ func _rpg_scene_for_location(loc: GameManager.RPGLocation) -> PackedScene:
 			return RPG_OVERWORLD_SCENE
 		GameManager.RPGLocation.TOWN:
 			return RPG_TOWN_SCENE
+		GameManager.RPGLocation.BATTLE:
+			return RPG_BATTLE_SCENE
 		GameManager.RPGLocation.DUNGEON:
 			# Dungeon scene lands in sub-phase 3d; for now fall back to
 			# the overworld so an accidental switch doesn't crash.

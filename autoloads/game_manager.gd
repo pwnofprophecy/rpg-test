@@ -52,11 +52,19 @@ func toggle_world() -> void:
 # when current_world == RPG, but it's safe to read at any time — it just
 # describes "if/when we go to the RPG, where will we land".
 
-enum RPGLocation { OVERWORLD, TOWN, DUNGEON }
+enum RPGLocation { OVERWORLD, TOWN, DUNGEON, BATTLE }
 
 # Default RPG entry point: the overworld. Switching to a different
-# location (TOWN/DUNGEON) is done via switch_rpg_location below.
+# location (TOWN/DUNGEON/BATTLE) is done via switch_rpg_location below.
 var rpg_location: RPGLocation = RPGLocation.OVERWORLD
+
+# When a battle starts, the location it was triggered FROM (overworld,
+# dungeon, etc.) is stashed here so battle.gd knows where to send the
+# player back when the battle ends. Defaults to OVERWORLD because that's
+# the only place encounters can fire from in Phase 3c — once dungeon
+# encounters land, the dungeon's stepper will set this to DUNGEON before
+# triggering the battle.
+var rpg_battle_return_location: RPGLocation = RPGLocation.OVERWORLD
 
 # Broadcast whenever rpg_location changes. main.gd listens to this so
 # it can swap the active RPG sub-scene (overworld → town, etc.) without

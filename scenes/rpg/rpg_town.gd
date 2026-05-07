@@ -29,6 +29,10 @@ extends Node2D
 @onready var pause_menu = $PauseMenu
 @onready var dialogue_box = $DialogueBox
 @onready var player: Node2D = $Player
+# The Player node's Camera2D child. Used to snap the viewport to the
+# player on scene load so smoothing doesn't show a stale viewport
+# position inherited from the previous scene.
+@onready var player_camera: Camera2D = $Player/Camera2D if has_node("Player/Camera2D") else null
 # Optional Label that pops up when the player is standing in an
 # interactable's zone (e.g. "[Interact] to talk" / "[Interact] to leave town").
 @onready var interact_hint: Label = $HintLayer/InteractHint if has_node("HintLayer/InteractHint") else null
@@ -79,6 +83,16 @@ func _ready() -> void:
 			continue
 		zone.player_entered_zone.connect(_on_zone_entered)
 		zone.player_left_zone.connect(_on_zone_exited)
+
+	# Snap the camera to the player on scene load so smoothing doesn't
+	# briefly frame a stale viewport position inherited from the previous
+	# scene (e.g. the overworld's camera location). make_current() forces
+	# this camera to take over from any other Camera2D that's still alive
+	# during the scene-swap frame; reset_smoothing() snaps it to the
+	# player. See rpg_overworld.gd for the longer explanation.
+	if player_camera != null:
+		player_camera.make_current()
+		player_camera.reset_smoothing()
 
 
 func _unhandled_input(event: InputEvent) -> void:

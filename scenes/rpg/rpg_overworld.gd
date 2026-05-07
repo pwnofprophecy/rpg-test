@@ -21,6 +21,11 @@ extends Node2D
 @onready var pause_menu = $PauseMenu
 @onready var dialogue_box = $DialogueBox
 @onready var player: Node2D = $Player
+# The Player node's Camera2D child. Used to snap the viewport to the
+# player on scene load — see _ready below for the smoothing-reset fix.
+# Wrapped in has_node so the script doesn't crash if you're testing the
+# scene without a camera attached.
+@onready var player_camera: Camera2D = $Player/Camera2D if has_node("Player/Camera2D") else null
 # Optional Label that pops up when the player is standing in an entrance,
 # showing the entrance's per-instance hint_text. Wrapped in @onready so the
 # scene still loads if the HintLayer hasn't been added yet — we just skip
@@ -44,6 +49,11 @@ extends Node2D
 var _current_entrance: Interactable = null
 
 # --- Inspector-editable: Encounter tuning ---
+# Master switch for random encounters. Flip this in the Inspector to test
+# the overworld without battles popping up, or toggle it at runtime with
+# F4 (see _unhandled_input below). When false, the stepper still ticks
+# distance internally but never fires an encounter.
+@export var encounters_enabled: bool = true
 # Encounters fire after a random number of steps in [min, max]. Tune these
 # while playtesting until encounter density feels right.
 @export_range(1, 50) var min_steps_between_encounters: int = 5
@@ -108,6 +118,23 @@ func _ready() -> void:
 		# next time uses the default spawn instead of stale data.
 		GameManager.overworld_return_position = Vector2.ZERO
 
+	# Snap the camera to the player's actual position immediately so the
+	# first frame doesn't show the smoothing interpolating from somewhere
+	# else. Two artifacts this prevents:
+	#   1. On RPG entry from the Real World, the Real World scene's
+	#      Camera2D is still "current" during the same frame the new RPG
+	#      scene loads (queue_free is end-of-frame, so both cameras are
+	#      briefly alive). Without make_current() the viewport keeps
+	#      rendering the Real World camera's last position. The battle
+	#      scene doesn't have this problem because it has no Camera2D.
+	#   2. After returning from a sub-location, the camera "snaps" to the
+	#      .tscn-default spawn (576, 324) and then slides to the restored
+	#      position once _ready repositions the player. reset_smoothing
+	#      collapses that slide into a single frame.
+	if player_camera != null:
+		player_camera.make_current()
+		player_camera.reset_smoothing()
+
 	# Seed the stepper with the player's current position so the first
 	# frame doesn't register a huge distance delta.
 	if player != null:
@@ -140,6 +167,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 
+	# F4 toggles random encounters on/off at runtime. Useful for walking the
+	# overworld during testing without battles interrupting. Prints the new
+	# state to the debugger so you can see what you flipped to.
+	if event.is_action_pressed("debug_toggle_encounters"):
+		encounters_enabled = not encounters_enabled
+		print("rpg_overworld: encounters_enabled = %s" % encounters_enabled)
+		get_viewport().set_input_as_handled()
+		return
+
 
 func _process(_delta: float) -> void:
 	# Step-based encounter counter. Distance-based rather than frame-based
@@ -147,6 +183,14 @@ func _process(_delta: float) -> void:
 	# steps. Runs unconditionally at the top so we bail cheaply when the
 	# stepper is off.
 	if not _stepper_enabled or player == null:
+		return
+
+	# Pause stepping while the dialogue box is open — otherwise the player
+	# could walk during a conversation and rack up steps. Reset the
+	# baseline so the next active frame doesn't see a huge accumulated
+	# delta from movement that happened while paused.
+	if dialogue_box != null and dialogue_box.is_open():
+		_last_player_pos = player.global_position
 		return
 
 	var current: Vector2 = player.global_position
@@ -282,11 +326,26 @@ func _on_dialogue_dismissed() -> void:
 # --- Encounters ---
 
 func _on_step() -> void:
+	# Distance-based step counter ticks every frame the player moves
+	# step_distance world-units. Encounters are gated by encounters_enabled
+	# so testing the overworld without battles is a one-checkbox affair.
+	if not encounters_enabled:
+		return
 	_steps_until_encounter -= 1
 	if _steps_until_encounter <= 0:
-		# Sub-phase 3a: just log. 3c will hook this to the battle scene.
-		print("Encounter!")
+		_trigger_encounter()
 		_roll_next_encounter()
+
+
+func _trigger_encounter() -> void:
+	# Save where the player is so the overworld can drop them back exactly
+	# where they were standing when the battle ends. Tell GameManager that
+	# this battle should return to the overworld (later, dungeon encounters
+	# will set this to DUNGEON instead). Then swap the active RPG scene.
+	if player != null:
+		GameManager.overworld_return_position = player.global_position
+	GameManager.rpg_battle_return_location = GameManager.RPGLocation.OVERWORLD
+	GameManager.switch_rpg_location(GameManager.RPGLocation.BATTLE)
 
 
 func _roll_next_encounter() -> void:

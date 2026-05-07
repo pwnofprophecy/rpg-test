@@ -141,6 +141,24 @@ The Hero's stats live on the **RPGState** autoload (runtime state) and are seede
 
 `Escape` (bound to the `pause` input action) opens it. `Escape` while open closes it. (`ui_cancel` is also bound to Escape as of Phase 3a so that LineEdit-based inputs like the name entry prompt can use Backspace for text editing.)
 
+## Battle Integration
+Random encounters are triggered by `rpg_overworld.gd`'s distance-based stepper. When the step counter hits zero, the overworld stashes the player's current position into `GameManager.overworld_return_position`, sets `GameManager.rpg_battle_return_location` to whatever location triggered the battle (currently always `OVERWORLD`; dungeons will set `DUNGEON` later), and switches to `RPGLocation.BATTLE`. `main.gd` swaps in `scenes/rpg/battle/battle.tscn`.
+
+The battle scene reads player stats from `RPGState` (max_hp, hp, attack, character_name) and writes damage back to `RPGState.hp` so HP carries over between battles. Enemy stats stay on the battle node as `@export` vars (`enemy_name`, `enemy_max_hp`, `enemy_atk_min/max`) — Phase 4's enemy variety mod will replace those defaults with per-encounter data.
+
+End-of-battle states (`WIN`, `LOSE`, `ESCAPE`) display a message and wait for the player to press `ui_accept` (handled in `battle.gd`'s `_unhandled_input`) before calling `_finish_battle_and_return()`, which switches back to `rpg_battle_return_location`. On loss, HP is restored to max as a placeholder game-over until SaveSystem-backed checkpoints land.
+
+**Toggling encounters for testing**: `rpg_overworld.gd` exposes `encounters_enabled` as an `@export bool` (default true). Flip it in the Inspector to disable encounters for a play session, or press **F4** at runtime to toggle on the fly (debug action `debug_toggle_encounters`). The stepper also auto-pauses while the dialogue box is open so conversations don't accidentally rack up steps.
+
+## Debug Keys
+| Key | Action | Action name |
+|---|---|---|
+| Tab | Toggle Real World ↔ RPG | `debug_toggle_world` |
+| F1 / F2 / F3 | Set RPG tier to Gameboy / NES / SNES | `debug_tier_*` |
+| F4 | Toggle random encounters on/off (overworld only) | `debug_toggle_encounters` |
+
+These will be removed once mods/UI control these states properly. Defined in `project.godot`'s `[input]` section.
+
 ## Communication Style
 - The user is a novice — explain what you're doing and why in detail as you work.
 - When writing code, explain the purpose of new scripts, functions, and patterns.
