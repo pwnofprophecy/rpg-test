@@ -1,0 +1,95 @@
+[gd_scene format=3 uid="uid://cb1k6llj08ab7"]
+
+[ext_resource type="Script" uid="uid://byf4xxov4s7p4" path="res://scenes/rpg/combat_sandbox.gd" id="1_pekty"]
+
+[node name="CombatSandbox" type="Node2D" unique_id=700124041]
+script = ExtResource("1_pekty")
+
+[node name="Background" type="ColorRect" parent="." unique_id=420951199]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.101960786, 0.101960786, 0.12156863, 1)
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=69064261]
+
+[node name="Margin" type="MarginContainer" parent="UI" unique_id=2086352236]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="Root" type="VBoxContainer" parent="UI/Margin" unique_id=1434496227]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="HBox" type="HBoxContainer" parent="UI/Margin/Root" unique_id=867689196]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="LeftColumn" type="VBoxContainer" parent="UI/Margin/Root/HBox" unique_id=587734513]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PlayerStatsLabel" type="Label" parent="UI/Margin/Root/HBox/LeftColumn" unique_id=2129709526]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Player Stats"
+
+[node name="PlayerStatsContainer" type="VBoxContainer" parent="UI/Margin/Root/HBox/LeftColumn" unique_id=910838153]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="MiddleColumn" type="VBoxContainer" parent="UI/Margin/Root/HBox" unique_id=1584856875]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="EnemyLabel" type="Label" parent="UI/Margin/Root/HBox/MiddleColumn" unique_id=1918943342]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Enemy"
+
+[node name="EnemyOption" type="OptionButton" parent="UI/Margin/Root/HBox/MiddleColumn" unique_id=1936111584]
+custom_minimum_size = Vector2(200, 32)
+layout_mode = 2
+
+[node name="EnemyStatsDisplay" type="VBoxContainer" parent="UI/Margin/Root/HBox/MiddleColumn" unique_id=1165747912]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="RightColumn" type="VBoxContainer" parent="UI/Margin/Root/HBox" unique_id=1151999130]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ModsLabel" type="Label" parent="UI/Margin/Root/HBox/RightColumn" unique_id=640714385]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Active Mods"
+
+[node name="ModsContainer" type="VBoxContainer" parent="UI/Margin/Root/HBox/RightColumn" unique_id=1972797011]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Buttons" type="HBoxContainer" parent="UI/Margin/Root" unique_id=728360929]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="StartBattleButton" type="Button" parent="UI/Margin/Root/Buttons" unique_id=1303300860]
+layout_mode = 2
+text = "Start Battle"
+
+[node name="ResetButton" type="Button" parent="UI/Margin/Root/Buttons" unique_id=48032743]
+layout_mode = 2
+text = "Reset To Defaults"
+
+[node name="ExitButton" type="Button" parent="UI/Margin/Root/Buttons" unique_id=592609922]
+layout_mode = 2
+text = "Exit Sandbox"

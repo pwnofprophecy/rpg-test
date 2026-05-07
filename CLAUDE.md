@@ -97,6 +97,20 @@ Provide concrete suggested values (positions, sizes, colors, dialogue text) so t
 
 If unclear whether a task is "code" or "scene work", ask. Default to instructing the user when in doubt.
 
+## Godot UID Cache & New Files
+Godot 4 maintains a `.godot/uid_cache.bin` file mapping every resource's UID to its file path. When the user creates a file through the Godot editor (e.g. via the FileSystem dock), the editor auto-registers it in the cache. **When Claude creates a new `.gd`, `.tres`, or `.tscn` via the Write tool, Godot doesn't know about it yet** — the file exists on disk but isn't in the cache.
+
+This causes a noisy startup warning the next time something references the new file by UID:
+```
+W ext_resource, invalid UID: uid://... — using text path instead: res://...
+```
+
+The fallback (text path lookup) works fine, so the game runs. But the warning is noise and we want a clean console.
+
+**Workflow when Claude adds new files:** After Claude reports that new `.gd` / `.tres` / `.tscn` files have been created, the user should run **Project → Reload Current Project** in the Godot editor (or close and reopen the project). That triggers a filesystem rescan, registers any new `.uid` sidecar files, and updates `uid_cache.bin`. Subsequent boots are warning-free.
+
+**If a UID warning still appears after reload:** Strip the `uid="..."` attribute from the offending `ext_resource` line. Godot will fall back to path-based loading, no warning, and the next time the file is saved through the editor it'll re-add a UID that's properly cached. This is the fix we used on `tree.tscn`, `bandit.tres`, and `slime.tres`.
+
 ## Respecting the User's Scene Layouts
 Even when Claude does touch a `.tscn` (per the exceptions above), the user's hand-placed layout is canonical:
 - **Do NOT move, resize, reposition, or reorganize** nodes in `.tscn` files the user has arranged, even if something looks "off" compared to an earlier version. That includes `position`, `offset_*`, `size`, `scale`, `rotation`, and the ordering/parenting of nodes.
@@ -141,6 +155,40 @@ The Hero's stats live on the **RPGState** autoload (runtime state) and are seede
 
 `Escape` (bound to the `pause` input action) opens it. `Escape` while open closes it. (`ui_cancel` is also bound to Escape as of Phase 3a so that LineEdit-based inputs like the name entry prompt can use Backspace for text editing.)
 
+## Combat Sandbox (Debug)
+`scenes/rpg/combat_sandbox.tscn` is a debug-only scene for iterating on the combat system. Press **F5** anywhere in the game to enter it; the sandbox stashes the world you came from in `GameManager.previous_world` and an "Exit Sandbox" button returns you there.
+
+The sandbox lets you live-edit Hero stats, pick an enemy from a dropdown of every `.tres` in `res://resources/enemies/`, toggle every registered mod on/off (bypassing the "must be found" gate), and launch a battle. Battles launched from the sandbox return to the sandbox (via `GameManager.battle_returns_to_sandbox`) so iteration is fast.
+
+Adding a new enemy: drop a `.tres` into `res://resources/enemies/`, fill in the `EnemyStats` fields in the Inspector, and it appears in the sandbox's dropdown next time you load it. No code changes.
+
+Adding a new player stat: append an entry to `_STAT_FIELDS` in `combat_sandbox.gd`. The SpinBox row generates automatically.
+
+## Damage Formula
+Phase 3.5 introduces the unified damage formula used by all attacks (physical, magical, weapon, spell):
+
+```
+EffectiveAttack = A + Power
+RawDamage = (2 × EffectiveAttack / D + 2) × Critical × Random
+Damage = max(1, floor(RawDamage))
+```
+
+Where:
+- **A** — `attack` for physical attacks, `intelligence` for magic
+- **Power** — attacker's `base_power` (or weapon/spell Power once equipped/cast)
+- **D** — defender's `defense` (clamped at 1)
+- **Critical** — `1.5x` on crit, `1.0` otherwise. Crit chance = `luck × 1%`, capped at 50%
+- **Random** — uniform `0.85..1.0` variance roll
+
+The full math lives in `battle.gd::_calculate_damage()`. Tuning constants (`STAT_COEFFICIENT`, `CRIT_MULTIPLIER`, etc.) are `const` at the top of `battle.gd` for now — extract to a `CombatBalance` Resource if Inspector tuning becomes valuable later.
+
+`HeroStats` and `EnemyStats` both have a `base_power: int` field. Set to 0 means raw stats only (unarmed). Weapons/spells eventually override this with their own Power values when equipped or cast.
+
+## Enemy Templates
+Enemies are defined as `EnemyStats` Resource `.tres` files in `res://resources/enemies/`. Each has the standard combat stats (max_hp, attack, defense, speed, intelligence, luck, base_power) plus reward fields (xp_reward, gold_reward) for future use.
+
+`battle.gd` reads enemy stats from `GameManager.pending_battle_enemy` (an `EnemyStats` Resource) when set, and falls back to the @export defaults on the battle node otherwise. The combat sandbox uses this — it sets `pending_battle_enemy` before launching the battle. The random-encounter path on the overworld currently uses the @export defaults; later it'll set `pending_battle_enemy` based on the encounter table.
+
 ## Battle Integration
 Random encounters are triggered by `rpg_overworld.gd`'s distance-based stepper. When the step counter hits zero, the overworld stashes the player's current position into `GameManager.overworld_return_position`, sets `GameManager.rpg_battle_return_location` to whatever location triggered the battle (currently always `OVERWORLD`; dungeons will set `DUNGEON` later), and switches to `RPGLocation.BATTLE`. `main.gd` swaps in `scenes/rpg/battle/battle.tscn`.
 
@@ -156,6 +204,7 @@ End-of-battle states (`WIN`, `LOSE`, `ESCAPE`) display a message and wait for th
 | Tab | Toggle Real World ↔ RPG | `debug_toggle_world` |
 | F1 / F2 / F3 | Set RPG tier to Gameboy / NES / SNES | `debug_tier_*` |
 | F4 | Toggle random encounters on/off (overworld only) | `debug_toggle_encounters` |
+| F5 | Open the Combat Sandbox (debug scene) | `debug_combat_sandbox` |
 
 These will be removed once mods/UI control these states properly. Defined in `project.godot`'s `[input]` section.
 

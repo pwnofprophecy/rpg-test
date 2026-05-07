@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="EnemyStats" format=3]
+
+[ext_resource type="Script" path="res://resources/enemy_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+enemy_name = "GOBLIN"
+max_hp = 8
+attack = 4
+defense = 2
+speed = 4
+intelligence = 2
+luck = 2
+base_power = 0
+xp_reward = 5
+gold_reward = 3

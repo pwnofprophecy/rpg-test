@@ -141,6 +141,41 @@ Each mod is a self-contained class that registers itself with ModManager. When a
 
 ---
 
+### Phase 3.5 — Combat Sandbox & Battle System Foundation
+*Goal: A debug scene for iterating on combat in isolation, plus the data structures and formulas the battle system needs to support enemy variety, character progression, and mods.*
+
+This phase exists because Phase 4 (mods) and beyond will introduce many combat variables that need to be tested in combination. Walking the overworld to trigger encounters every time we change a number is too slow. The sandbox is the test harness for the rest of the project.
+
+**Damage formula:**
+```
+EffectiveAttack = A + Power
+RawDamage = (2 × EffectiveAttack / D + 2) × Critical × Random
+Damage = max(1, floor(RawDamage))
+```
+- **A** = `attack` (physical) or `intelligence` (magic)
+- **Power** = weapon/spell bonus, additive into the attacker's effective attack stat (so Defense still factors in proportionally — high-armor enemies still resist powerful weapons, just less than they resist unarmed strikes)
+- **D** = defender's `defense`
+- **Critical** = 1.0 normal, 1.5 on crit
+- **Random** = uniform 0.85 to 1.0
+
+**Crit:** chance = `luck × 1%` (capped at 50%). Crit multiplier applies to final damage.
+
+**Tasks:**
+- [ ] `EnemyStats` Resource type (mirrors `HeroStats` pattern) — Inspector-editable enemy templates
+- [ ] 3–4 starter enemy `.tres` files (Goblin, Slime, Skeleton, Bandit — placeholder stats)
+- [ ] Add `base_power: int` field to both `HeroStats` and `EnemyStats`
+- [ ] Refactor `battle.gd` to accept an `EnemyStats` programmatically, falling back to current `@export` defaults for compatibility
+- [ ] Implement the damage formula above; show "Critical hit!" on crit rolls
+- [ ] `Combat Sandbox` scene with: editable player stats, enemy picker, mod toggles, Reset-to-Defaults, Start Battle, Exit Sandbox
+- [ ] Sandbox lives as `World.COMBAT_SANDBOX` alongside `REAL_WORLD` and `RPG`; F5 from anywhere enters it
+- [ ] `GameManager.previous_world` for return-to-where-you-were on exit
+- [ ] `GameManager.battle_returns_to_sandbox` flag — when sandbox launches a battle, the battle returns to the sandbox instead of the regular `rpg_battle_return_location`
+- [ ] Tuning constants (`STAT_COEFFICIENT`, `CRIT_MULTIPLIER`, etc.) live as `const` in `battle.gd` for now; extract to a Resource if iteration speed demands it later
+
+**Deliverable:** Press F5 anywhere → land in a debug scene where you can edit player stats, pick an enemy from a dropdown, toggle mods on/off, and launch a battle to test the combination. Battle ends → return to sandbox to try again.
+
+---
+
 ### Phase 4 — First Wave of Mods (6–8 Mods)
 *Goal: The Mod system is fully functional and the first set of mods meaningfully changes gameplay.*
 

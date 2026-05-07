@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnemyStats" format=3 uid="uid://bmu2ecxerbu62"]
+
+[ext_resource type="Script" uid="uid://cm5b1u12a276w" path="res://resources/enemy_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+enemy_name = "BANDIT"
+max_hp = 7
+defense = 3
+speed = 6
+intelligence = 4
+luck = 4
+base_power = 3
+xp_reward = 10
+gold_reward = 6

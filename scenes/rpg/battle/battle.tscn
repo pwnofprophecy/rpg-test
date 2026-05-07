@@ -1,68 +1,94 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://c38qmpbl2ywyn"]
 
 [ext_resource type="Script" uid="uid://m2psy4gcrajr" path="res://scenes/rpg/battle/battle.gd" id="1"]
 [ext_resource type="Script" uid="uid://dpjnha2826m7c" path="res://scenes/rpg/battle/battle_ui.gd" id="2"]
 [ext_resource type="Texture2D" uid="uid://6nhjmtfcu3l" path="res://assets/sprites/player_back.svg" id="3"]
 [ext_resource type="Texture2D" uid="uid://f8udcxg2fwct" path="res://assets/sprites/enemy_placeholder.svg" id="4"]
 
-[node name="Battle" type="Node2D"]
+[node name="Battle" type="Node2D" unique_id=335743338]
 script = ExtResource("1")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="ColorRect" parent="." unique_id=937942246]
 offset_right = 1152.0
 offset_bottom = 648.0
 color = Color(0.176, 0.353, 0.118, 1)
 
-[node name="PlayerSprite" type="Sprite2D" parent="."]
+[node name="PlayerSprite" type="Sprite2D" parent="." unique_id=445790672]
 position = Vector2(200, 400)
 scale = Vector2(4, 4)
 texture = ExtResource("3")
 
-[node name="EnemySprite" type="Sprite2D" parent="."]
+[node name="EnemySprite" type="Sprite2D" parent="." unique_id=1032635101]
 position = Vector2(900, 180)
 scale = Vector2(4, 4)
 texture = ExtResource("4")
 
-[node name="BattleUI" type="CanvasLayer" parent="."]
+[node name="BattleUI" type="CanvasLayer" parent="." unique_id=1051565881]
 script = ExtResource("2")
 
-[node name="PlayerHealthBar" type="VBoxContainer" parent="BattleUI"]
+[node name="PlayerHealthBar" type="VBoxContainer" parent="BattleUI" unique_id=2036140899]
 offset_left = 300.0
 offset_top = 340.0
 offset_right = 500.0
 offset_bottom = 400.0
 
-[node name="NameLabel" type="Label" parent="BattleUI/PlayerHealthBar"]
+[node name="NameLabel" type="Label" parent="BattleUI/PlayerHealthBar" unique_id=851845114]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "HERO"
 
-[node name="HPBar" type="ProgressBar" parent="BattleUI/PlayerHealthBar"]
-layout_mode = 2
+[node name="HPBar" type="ProgressBar" parent="BattleUI/PlayerHealthBar" unique_id=295305002]
 custom_minimum_size = Vector2(200, 20)
+layout_mode = 2
 max_value = 10.0
 value = 10.0
 show_percentage = false
 
-[node name="EnemyHealthBar" type="VBoxContainer" parent="BattleUI"]
+[node name="HPText" type="Label" parent="BattleUI/PlayerHealthBar/HPBar" unique_id=2048847736]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="EnemyHealthBar" type="VBoxContainer" parent="BattleUI" unique_id=911248175]
 offset_left = 640.0
 offset_top = 100.0
 offset_right = 840.0
 offset_bottom = 160.0
 
-[node name="NameLabel" type="Label" parent="BattleUI/EnemyHealthBar"]
+[node name="NameLabel" type="Label" parent="BattleUI/EnemyHealthBar" unique_id=2142061510]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "GOBLIN"
 
-[node name="HPBar" type="ProgressBar" parent="BattleUI/EnemyHealthBar"]
-layout_mode = 2
+[node name="HPBar" type="ProgressBar" parent="BattleUI/EnemyHealthBar" unique_id=163814785]
 custom_minimum_size = Vector2(200, 20)
+layout_mode = 2
 max_value = 8.0
 value = 8.0
 show_percentage = false
 
-[node name="TextBox" type="PanelContainer" parent="BattleUI"]
+[node name="HPText" type="Label" parent="BattleUI/EnemyHealthBar/HPBar" unique_id=1332474766]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TextBox" type="PanelContainer" parent="BattleUI" unique_id=96453473]
 anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
@@ -71,20 +97,19 @@ offset_top = -160.0
 grow_horizontal = 2
 grow_vertical = 0
 
-[node name="MarginContainer" type="MarginContainer" parent="BattleUI/TextBox"]
+[node name="MarginContainer" type="MarginContainer" parent="BattleUI/TextBox" unique_id=1741383129]
 layout_mode = 2
 theme_override_constants/margin_left = 20
 theme_override_constants/margin_top = 15
 theme_override_constants/margin_right = 20
 theme_override_constants/margin_bottom = 15
 
-[node name="TextLabel" type="Label" parent="BattleUI/TextBox/MarginContainer"]
+[node name="TextLabel" type="Label" parent="BattleUI/TextBox/MarginContainer" unique_id=102270201]
 layout_mode = 2
 theme_override_font_sizes/font_size = 22
-text = ""
 autowrap_mode = 2
 
-[node name="MenuBox" type="PanelContainer" parent="BattleUI"]
+[node name="MenuBox" type="PanelContainer" parent="BattleUI" unique_id=1009088882]
 anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
@@ -95,36 +120,36 @@ offset_top = -160.0
 grow_horizontal = 0
 grow_vertical = 0
 
-[node name="MenuGrid" type="GridContainer" parent="BattleUI/MenuBox"]
+[node name="MenuGrid" type="GridContainer" parent="BattleUI/MenuBox" unique_id=1862817320]
 layout_mode = 2
 theme_override_constants/h_separation = 40
 theme_override_constants/v_separation = 10
 columns = 2
 
-[node name="AttackLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid"]
-layout_mode = 2
+[node name="AttackLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid" unique_id=423360720]
 custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "> Attack"
 vertical_alignment = 1
 
-[node name="CastLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid"]
-layout_mode = 2
+[node name="CastLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid" unique_id=171387863]
 custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "  Cast"
 vertical_alignment = 1
 
-[node name="ItemLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid"]
-layout_mode = 2
+[node name="ItemLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid" unique_id=250381201]
 custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "  Item"
 vertical_alignment = 1
 
-[node name="RunLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid"]
-layout_mode = 2
+[node name="RunLabel" type="Label" parent="BattleUI/MenuBox/MenuGrid" unique_id=1238785328]
 custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "  Run"
 vertical_alignment = 1

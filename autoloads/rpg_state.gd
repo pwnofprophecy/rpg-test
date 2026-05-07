@@ -47,6 +47,11 @@ var speed: int = 0
 var intelligence: int = 0
 # Crit chance + loot drop rolls. Used by battles / loot tables later.
 var luck: int = 0
+# Base attack power when unarmed. Added to the relevant attack stat
+# (attack for physical, intelligence for magic) before defense divides into
+# the result. Weapons / spells will eventually override this with their own
+# Power values when equipped or cast.
+var base_power: int = 0
 
 var level: int = 0
 var xp: int = 0
@@ -103,6 +108,7 @@ func _seed_from_template(include_name: bool) -> void:
 	speed = t.speed
 	intelligence = t.intelligence
 	luck = t.luck
+	base_power = t.base_power
 	level = t.level
 	xp = t.xp
 	gold = t.gold

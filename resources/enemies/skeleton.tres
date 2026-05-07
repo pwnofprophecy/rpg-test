@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="EnemyStats" format=3]
+
+[ext_resource type="Script" path="res://resources/enemy_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+enemy_name = "SKELETON"
+max_hp = 10
+attack = 6
+defense = 4
+speed = 5
+intelligence = 3
+luck = 3
+base_power = 1
+xp_reward = 7
+gold_reward = 4

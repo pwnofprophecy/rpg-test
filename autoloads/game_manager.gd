@@ -13,7 +13,7 @@ extends Node
 # The two "worlds" the player can be in.
 # REAL_WORLD = the house (top-down exploration).
 # RPG       = the game-within-a-game on the PC monitor.
-enum World { REAL_WORLD, RPG }
+enum World { REAL_WORLD, RPG, COMBAT_SANDBOX }
 
 # Broadcast signal: any scene (including the SceneManager) can listen to this
 # and react when the player switches worlds.
@@ -24,12 +24,20 @@ signal world_changed(new_world: World)
 # Which world is currently active. Starts in REAL_WORLD (you wake up at your desk).
 var current_world: World = World.REAL_WORLD
 
+# When entering the combat sandbox via F5, the world we came from is
+# stashed here so the sandbox's "Exit" button can return us. Updated by
+# switch_to_world() automatically.
+var previous_world: World = World.REAL_WORLD
+
 
 # Switch to a specific world. Does nothing if already there.
 # Call this from anywhere: GameManager.switch_to_world(GameManager.World.RPG)
+# previous_world is updated FROM the world we're leaving, so the sandbox's
+# Exit button can read it and send the player back to where they were.
 func switch_to_world(world: World) -> void:
 	if world == current_world:
 		return
+	previous_world = current_world
 	current_world = world
 	world_changed.emit(world)
 
@@ -83,6 +91,21 @@ func switch_rpg_location(loc: RPGLocation) -> void:
 		return
 	rpg_location = loc
 	rpg_location_changed.emit(loc)
+
+
+# --- Combat Sandbox bridge ---
+# The sandbox launches battles for testing. These two fields tell battle.gd
+# (1) which enemy template to use, and (2) where to send the player when
+# the battle ends. battle.gd reads `pending_battle_enemy` on _ready, and
+# checks `battle_returns_to_sandbox` in _finish_battle_and_return.
+
+# When non-null, battle.gd will use this EnemyStats Resource instead of
+# its @export defaults. Cleared by battle.gd after consuming.
+var pending_battle_enemy: Resource = null
+
+# When true, battle end returns the player to the sandbox instead of the
+# usual rpg_battle_return_location. Cleared by battle.gd after consuming.
+var battle_returns_to_sandbox: bool = false
 
 
 # --- Progression Flags (stubs for future phases) ---

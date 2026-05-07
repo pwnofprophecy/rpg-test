@@ -24,6 +24,12 @@ signal action_selected(action: String)
 @onready var enemy_hp_bar: ProgressBar = $EnemyHealthBar/HPBar
 @onready var player_name_label: Label = $PlayerHealthBar/NameLabel
 @onready var enemy_name_label: Label = $EnemyHealthBar/NameLabel
+# Optional "current / max" text overlays on the HP bars. Wrapped in
+# has_node so the script keeps working if you haven't added the labels
+# to the scene yet — they just stay null and the update calls below
+# silently skip the text update.
+@onready var player_hp_text: Label = $PlayerHealthBar/HPBar/HPText if has_node("PlayerHealthBar/HPBar/HPText") else null
+@onready var enemy_hp_text: Label = $EnemyHealthBar/HPBar/HPText if has_node("EnemyHealthBar/HPBar/HPText") else null
 
 # An array holding references to the four menu option labels,
 # in the order they appear in the 2x2 grid:
@@ -112,16 +118,19 @@ func set_message(text: String) -> void:
 
 
 # Updates the player's HP bar to reflect the new value.
-# Also updates the bar's color based on remaining health percentage.
+# Also updates the bar's color based on remaining health percentage,
+# and refreshes the "X / Y" text overlay if one exists.
 func update_player_hp(value: int) -> void:
 	player_hp_bar.value = value
 	_update_bar_color(player_hp_bar)
+	_refresh_hp_text(player_hp_text, player_hp_bar)
 
 
 # Updates the enemy's HP bar to reflect the new value.
 func update_enemy_hp(value: int) -> void:
 	enemy_hp_bar.value = value
 	_update_bar_color(enemy_hp_bar)
+	_refresh_hp_text(enemy_hp_text, enemy_hp_bar)
 
 
 # Sets the player's HP bar maximum so the fill ratio reflects real stats
@@ -130,11 +139,21 @@ func update_enemy_hp(value: int) -> void:
 # calculation uses the right max.
 func set_player_max_hp(max_value: int) -> void:
 	player_hp_bar.max_value = max_value
+	_refresh_hp_text(player_hp_text, player_hp_bar)
 
 
 # Sets the enemy's HP bar maximum the same way.
 func set_enemy_max_hp(max_value: int) -> void:
 	enemy_hp_bar.max_value = max_value
+	_refresh_hp_text(enemy_hp_text, enemy_hp_bar)
+
+
+# Updates an HP text overlay to read "current / max". No-op when the
+# label is null (i.e. the .tscn doesn't have one yet).
+func _refresh_hp_text(label: Label, bar: ProgressBar) -> void:
+	if label == null:
+		return
+	label.text = "%d / %d" % [int(bar.value), int(bar.max_value)]
 
 
 # Updates the displayed combatant names. battle.gd calls these from _ready

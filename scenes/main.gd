@@ -26,6 +26,10 @@ const RPG_OVERWORLD_SCENE: PackedScene = preload("res://scenes/rpg/rpg_overworld
 const RPG_TOWN_SCENE: PackedScene = preload("res://scenes/rpg/rpg_town.tscn")
 const RPG_BATTLE_SCENE: PackedScene = preload("res://scenes/rpg/battle/battle.tscn")
 
+# Debug-only combat sandbox. Loaded as a top-level "world" alongside
+# REAL_WORLD and RPG. Accessed via F5 from anywhere (see _unhandled_input).
+const COMBAT_SANDBOX_SCENE: PackedScene = preload("res://scenes/rpg/combat_sandbox.tscn")
+
 # Reference to the container node that holds the currently active world.
 # We'll add/remove children here whenever the world changes.
 @onready var current_scene_container: Node = $CurrentScene
@@ -62,6 +66,14 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("debug_toggle_world"):
 		GameManager.toggle_world()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("debug_combat_sandbox"):
+		# F5 — jump to the combat sandbox. switch_to_world records the
+		# current world as previous_world automatically, so the sandbox's
+		# Exit button can return the player to wherever they came from.
+		# No-op if we're already in the sandbox.
+		if GameManager.current_world != GameManager.World.COMBAT_SANDBOX:
+			GameManager.switch_to_world(GameManager.World.COMBAT_SANDBOX)
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("debug_tier_gameboy"):
 		Aesthetic.set_tier(Aesthetic.Tier.GAMEBOY)
@@ -108,6 +120,8 @@ func _load_world(world: GameManager.World) -> void:
 			packed_scene = REAL_WORLD_SCENE
 		GameManager.World.RPG:
 			packed_scene = _rpg_scene_for_location(GameManager.rpg_location)
+		GameManager.World.COMBAT_SANDBOX:
+			packed_scene = COMBAT_SANDBOX_SCENE
 
 	current_scene_container.add_child(packed_scene.instantiate())
 

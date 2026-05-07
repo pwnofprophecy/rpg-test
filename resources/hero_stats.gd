@@ -40,6 +40,11 @@ extends Resource
 # Affects critical hit chance and loot drop rolls. Battles / loot tables
 # will read this when deciding outcomes.
 @export var luck: int = 5
+# Base attack power when unarmed/uncast. Added to the relevant attack stat
+# (attack for physical, intelligence for magic) before defense divides into
+# the result. Default 0 — fists do nothing on top of raw stats. Weapons
+# and spells will eventually override this with their own Power values.
+@export var base_power: int = 0
 
 # --- Progression ---
 @export var level: int = 1
