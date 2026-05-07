@@ -21,6 +21,16 @@ extends Area2D
 # Used for special-case logic (e.g. "pc" opens the PC menu, "shower" opens the curtain).
 @export var interaction_id: String = ""
 
+# Per-instance text shown in the on-screen "[Enter] to ..." hint while the
+# player is standing inside this Area2D. Each scene's owning script chooses
+# whether to display it (the RPG overworld does, the Real World currently
+# uses a fixed hint), but the data lives on the Interactable so designers
+# can edit it in the Inspector without going into code. Examples:
+#   "[Enter] to enter the town"
+#   "[Enter] to descend into the dungeon"
+# Leave empty if you don't want a hint for this object.
+@export var hint_text: String = ""
+
 # The text shown in the dialogue box when the player interacts.
 # Used for single-page messages. For multi-page dialog, fill out
 # interaction_pages below instead — that takes priority.

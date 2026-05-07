@@ -21,13 +21,27 @@ extends Node2D
 @onready var pause_menu = $PauseMenu
 @onready var dialogue_box = $DialogueBox
 @onready var player: Node2D = $Player
+# Optional Label that pops up when the player is standing in an entrance,
+# showing the entrance's per-instance hint_text. Wrapped in @onready so the
+# scene still loads if the HintLayer hasn't been added yet — we just skip
+# show/hide calls when it's null.
+@onready var interact_hint: Label = $HintLayer/InteractHint if has_node("HintLayer/InteractHint") else null
 
 # --- Inspector-editable: Entrances ---
-# Drag your hand-placed Area2D nodes into these slots in the Inspector. The
-# script connects `body_entered` on _ready. Leave empty while you're still
-# building the scene — the game will run fine without them wired.
+# Drag your hand-placed Area2D nodes into these slots in the Inspector.
+# Each node must have the `interactable.gd` script attached (it extends
+# Area2D), with its `interaction_id` set to "town_entrance" or
+# "dungeon_entrance" so we know which one fired when the player presses
+# Enter. Leave the paths empty while you're still building the scene —
+# the game will run fine without them wired.
 @export_node_path("Area2D") var town_entrance_path: NodePath
 @export_node_path("Area2D") var dungeon_entrance_path: NodePath
+
+# --- Entrance proximity state ---
+# The Interactable the player is currently standing inside, or null. We set
+# this in player_entered_zone and clear it in player_left_zone, then read
+# it in _unhandled_input when the player presses Enter to decide what to do.
+var _current_entrance: Interactable = null
 
 # --- Inspector-editable: Encounter tuning ---
 # Encounters fire after a random number of steps in [min, max]. Tune these
@@ -78,9 +92,21 @@ func _ready() -> void:
 	dialogue_box.choice_made.connect(_on_choice_made)
 	dialogue_box.dismissed.connect(_on_dialogue_dismissed)
 
-	# Wire entrance triggers if the designer has assigned them.
-	_connect_entrance(town_entrance_path, _on_town_entered)
-	_connect_entrance(dungeon_entrance_path, _on_dungeon_entered)
+	# Wire entrance triggers if the designer has assigned them. The handlers
+	# now just track proximity — the actual "enter the area" trigger fires
+	# from _unhandled_input when the player presses ui_accept while inside.
+	_connect_entrance(town_entrance_path)
+	_connect_entrance(dungeon_entrance_path)
+
+	# If the player is returning from a sub-location (town/dungeon), drop
+	# them back where they were standing. Vector2.ZERO is the "no saved
+	# position" sentinel — first entry from the Real World hits this case
+	# and the player stays at the scene's default spawn point.
+	if player != null and GameManager.overworld_return_position != Vector2.ZERO:
+		player.global_position = GameManager.overworld_return_position
+		# Consume the saved position so a fresh entry from the Real World
+		# next time uses the default spawn instead of stale data.
+		GameManager.overworld_return_position = Vector2.ZERO
 
 	# Seed the stepper with the player's current position so the first
 	# frame doesn't register a huge distance delta.
@@ -101,6 +127,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		if not pause_menu.is_open() and _name_entry_instance == null:
 			_open_pause_menu()
+			get_viewport().set_input_as_handled()
+		return
+
+	# Enter triggers the current entrance, if the player is standing inside
+	# one and no UI is blocking. Pause menu and dialogue box consume input
+	# themselves when open, so we mostly just need to guard against name
+	# entry being up (it doesn't consume scene-level ui_accept).
+	if event.is_action_pressed("ui_accept"):
+		if _current_entrance != null and not pause_menu.is_open() and _name_entry_instance == null:
+			_trigger_entrance(_current_entrance)
 			get_viewport().set_input_as_handled()
 		return
 
@@ -166,6 +202,13 @@ func _apply_current_tier() -> void:
 func _open_name_entry() -> void:
 	# Stepper off so movement during name entry doesn't tick encounters.
 	_stepper_enabled = false
+	# Freeze the player. The name entry's LineEdit captures keys via gui_input
+	# for the caret, but player.gd reads Input.get_vector() globally each
+	# physics frame, which doesn't care about focus. Without this, arrow
+	# keys move the caret AND walk the character. Disabling the player's
+	# process_mode skips its _physics_process entirely until we restore it.
+	if player != null:
+		player.process_mode = Node.PROCESS_MODE_DISABLED
 	_name_entry_instance = NAME_ENTRY_SCENE.instantiate()
 	add_child(_name_entry_instance)
 	_name_entry_instance.name_confirmed.connect(_on_name_confirmed)
@@ -175,6 +218,9 @@ func _on_name_confirmed(_name: String) -> void:
 	if _name_entry_instance != null:
 		_name_entry_instance.queue_free()
 		_name_entry_instance = null
+	# Restore player processing — back to inheriting from the parent's mode.
+	if player != null:
+		player.process_mode = Node.PROCESS_MODE_INHERIT
 	# Reset the stepper baseline so pre-name-entry movement doesn't count.
 	if player != null:
 		_last_player_pos = player.global_position
@@ -250,33 +296,76 @@ func _roll_next_encounter() -> void:
 
 # --- Entrance wiring ---
 
-func _connect_entrance(path: NodePath, handler: Callable) -> void:
+func _connect_entrance(path: NodePath) -> void:
 	# Safe no-op when the NodePath hasn't been set in the Inspector yet —
 	# lets us keep this script compiling while you're still placing scene
-	# nodes. Also safe if the path points at a missing node.
+	# nodes. The target must be an Interactable (interactable.gd attached);
+	# we listen to its proximity signals so the player has to press Enter
+	# to actually trigger entry, rather than falling in by walking through.
 	if path.is_empty():
 		return
 	var node: Node = get_node_or_null(path)
 	if node == null:
 		push_warning("rpg_overworld: entrance NodePath '%s' not found" % path)
 		return
-	var area: Area2D = node as Area2D
-	if area == null:
-		push_warning("rpg_overworld: entrance '%s' is not an Area2D" % path)
+	var interactable: Interactable = node as Interactable
+	if interactable == null:
+		push_warning(
+			"rpg_overworld: entrance '%s' isn't an Interactable. Attach "
+			% path
+			+ "scripts/interactable.gd and set its interaction_id.")
 		return
-	area.body_entered.connect(handler)
+	interactable.player_entered_zone.connect(_on_entrance_entered)
+	interactable.player_left_zone.connect(_on_entrance_exited)
 
 
-func _on_town_entered(body: Node) -> void:
-	# Only the player should trigger entrance transitions.
-	if body != player:
+func _on_entrance_entered(zone: Interactable) -> void:
+	# Player walked into an entrance trigger zone. Remember which one so
+	# Enter knows what to fire, and pop up the per-instance hint text
+	# (e.g. "[Enter] to enter the town"). If hint_text is empty, the
+	# label stays hidden — designers can opt out per entrance.
+	_current_entrance = zone
+	_show_hint(zone.hint_text)
+
+
+func _on_entrance_exited(zone: Interactable) -> void:
+	# Only clear if it's the entrance we last entered. Guards against an
+	# overlap-then-walk-out from a different zone clobbering us.
+	if _current_entrance == zone:
+		_current_entrance = null
+		_show_hint("")
+
+
+func _show_hint(text: String) -> void:
+	# Single point of control for the hint label. Empty text hides the
+	# label entirely. Safely no-ops if the HintLayer/InteractHint node
+	# hasn't been added to the scene yet.
+	if interact_hint == null:
 		return
-	# Sub-phase 3b hooks actual town loading here.
-	print("TownEntrance triggered")
+	if text == "":
+		interact_hint.visible = false
+	else:
+		interact_hint.text = text
+		interact_hint.visible = true
 
 
-func _on_dungeon_entered(body: Node) -> void:
-	if body != player:
-		return
-	# Sub-phase 3d hooks actual dungeon loading here.
-	print("DungeonEntrance triggered")
+func _trigger_entrance(zone: Interactable) -> void:
+	# Routed by interaction_id so adding a third entrance later is one new
+	# match arm rather than another @onready / NodePath / handler trio.
+	#
+	# Each entrance saves the player's current position into
+	# GameManager.overworld_return_position so when the player exits the
+	# sub-location and we reload this scene, they re-appear right where
+	# they left from instead of at the default spawn.
+	match zone.interaction_id:
+		"town_entrance":
+			if player != null:
+				GameManager.overworld_return_position = player.global_position
+			GameManager.switch_rpg_location(GameManager.RPGLocation.TOWN)
+		"dungeon_entrance":
+			# Sub-phase 3d hooks actual dungeon loading here.
+			print("DungeonEntrance triggered")
+		_:
+			push_warning(
+				"rpg_overworld: unknown entrance interaction_id '%s'"
+				% zone.interaction_id)

@@ -38,6 +38,13 @@ The game is split across two "worlds":
 
 The SceneManager (`scenes/main.gd`) is the root scene and swaps between them based on `GameManager.current_world`. Autoloads persist across world switches, so global state survives transitions.
 
+### RPG Sub-Locations
+The RPG world has multiple "places" the player can be in: the overworld map, towns, dungeons, etc. These are tracked separately from the World layer via `GameManager.rpg_location` (an `RPGLocation` enum: `OVERWORLD`, `TOWN`, `DUNGEON`). When `GameManager.switch_rpg_location()` fires, `main.gd` swaps the active RPG sub-scene — but only if the player is currently in the RPG world. If they're in the Real World, the new location is queued for the next time they enter the RPG via the PC.
+
+`GameManager.overworld_return_position` is the bridge for "where do I respawn when I leave a sub-location?" When entering a town/dungeon from the overworld, the trigger handler stashes `player.global_position` here. When the overworld scene reloads, its `_ready()` consumes that position and resets it to `Vector2.ZERO` (the "no saved position, use the default spawn" sentinel). This means a fresh RPG entry from the Real World always uses the scene's hand-placed default spawn, while round-trips to towns/dungeons preserve where the player was standing.
+
+Adding a new RPG sub-location: add an enum entry to `RPGLocation`, a `preload` constant in `main.gd`, and a match arm in `main.gd`'s `_rpg_scene_for_location()`. Build the scene's `.tscn` mirroring the structure of `rpg_town.tscn` — root Node2D with the location script, plus `TierOverlayLayer`, `HintLayer`, `PauseMenu`, `DialogueBox`, and Player+Camera2D children. The location script handles its own pause menu wiring, save flow, and interactable routing — for now this is duplicated from `rpg_overworld.gd` / `rpg_town.gd` rather than factored into a base class. Refactor to a shared base when a third location lands.
+
 ## Autoloads
 Five singletons are registered in `project.godot`:
 - **GameManager** — current world, progression flags, world-switching API (`switch_to_world`, `toggle_world`)
@@ -67,12 +74,34 @@ Five singletons are registered in `project.godot`:
 - Avoid binary `.scn` files; keep scenes as `.tscn` for version control readability.
 - Don't use git worktrees — work directly on the main repository.
 
+## Division of Work: Code vs. Scenes
+The user and Claude split responsibilities cleanly:
+
+**Claude handles all code:** `.gd` scripts, autoloads, shaders, `.tres` resource definitions, `project.godot` settings, `CLAUDE.md`, and any other text-based logic. Write/edit these directly without asking.
+
+**The user handles all scene/content building in the Godot editor:** `.tscn` files, scene trees, node placement, collision shapes, doorways, walls, room layouts, NPC placement, prop instances, and any creative/design decisions about how the world looks and is laid out.
+
+When new scene content is needed (a town, a room, an NPC, a dungeon, props, etc.), **do NOT create or modify the `.tscn` file directly**. Instead, give the user step-by-step instructions for building it in the Godot editor:
+- What nodes to add and what types they should be (e.g. "Add an Area2D as a child of Interactables")
+- What scripts to attach (e.g. "Attach `scripts/interactable.gd`")
+- What Inspector properties to set (e.g. "Set `interaction_id` to `npc_blacksmith`, `hint_text` to `[Interact] to talk`, fill in `interaction_pages` with the dialogue lines below")
+- How nodes should be parented and roughly where they should sit (let the user pick exact positions)
+- Any group memberships, signal connections, or collision layer settings that aren't auto-handled by the code
+
+Provide concrete suggested values (positions, sizes, colors, dialogue text) so the user has something to start from, but frame them as suggestions the user can adjust to taste.
+
+**Exceptions where Claude may still touch `.tscn` files directly:**
+- Fixing concrete bugs in scene metadata (e.g. the invalid-UID warning fix on `tree.tscn`)
+- Tweaks the user explicitly asks for ("change this NPC's color to red")
+- Trivial property updates that don't affect layout (e.g. updating an `interaction_id` string)
+
+If unclear whether a task is "code" or "scene work", ask. Default to instructing the user when in doubt.
+
 ## Respecting the User's Scene Layouts
-The user arranges objects, collision shapes, sprites, doorways, walls, and other scene-level nodes by hand in the Godot editor. These layouts are the user's creative/design decisions and must be preserved.
+Even when Claude does touch a `.tscn` (per the exceptions above), the user's hand-placed layout is canonical:
 - **Do NOT move, resize, reposition, or reorganize** nodes in `.tscn` files the user has arranged, even if something looks "off" compared to an earlier version. That includes `position`, `offset_*`, `size`, `scale`, `rotation`, and the ordering/parenting of nodes.
 - **Do NOT "restore" prior positions** from memory, plan files, or git history — if the user moved something, the new location is the canonical one.
 - If a task genuinely requires moving something the user has placed (e.g. a new feature only works if a collision shape is resized), **stop and ask for permission first**, describing exactly what needs to move and why.
-- Editing scripts, adding new nodes the user hasn't placed, changing `interaction_text` / `interaction_id` / other script-level properties, and fixing obvious bugs are all still fair game without asking.
 
 ## Aesthetic Tier System
 The RPG (not the Real World) has a **visual tier** that controls its look: Gameboy, NES, or SNES. The system is designed so that both Phase 2 code and future assets/mods hook in the same way.

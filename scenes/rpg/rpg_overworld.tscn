@@ -3,6 +3,7 @@
 [ext_resource type="PackedScene" uid="uid://ctkacwtuifasq" path="res://scenes/player/player.tscn" id="1"]
 [ext_resource type="PackedScene" uid="uid://v1rtfk2mpjh8" path="res://scenes/rpg/props/tree.tscn" id="2_ynnp2"]
 [ext_resource type="Script" uid="uid://d0y0yg1ms3qkb" path="res://scenes/rpg/rpg_overworld.gd" id="3"]
+[ext_resource type="Script" uid="uid://l718wvqxtq7y" path="res://scripts/interactable.gd" id="3_kijac"]
 [ext_resource type="Shader" uid="uid://bfoxmtnva62uy" path="res://scenes/rpg/shaders/tier_overlay.gdshader" id="4"]
 [ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="5"]
 [ext_resource type="PackedScene" path="res://scenes/ui/dialogue_box.tscn" id="6"]
@@ -16,6 +17,9 @@ size = Vector2(32, 1296)
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_kijac"]
 size = Vector2(32, 1296)
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0e4n2"]
+size = Vector2(80, 80)
+
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_tier"]
 shader = ExtResource("4")
 shader_parameter/palette = PackedVector4Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -27,6 +31,8 @@ shader_parameter/scanline_frequency = 300.0
 [node name="RpgOverworld" type="Node2D" unique_id=630008899]
 y_sort_enabled = true
 script = ExtResource("3")
+town_entrance_path = NodePath("TownEntrance")
+dungeon_entrance_path = NodePath("DungeonEntrance")
 min_steps_between_encounters = 20
 max_steps_between_encounters = 40
 
@@ -124,6 +130,42 @@ position = Vector2(952, 768)
 [node name="Tree10" parent="Obstacles" unique_id=130231251 instance=ExtResource("2_ynnp2")]
 position = Vector2(504, 984)
 
+[node name="TownEntrance" type="Area2D" parent="." unique_id=1630672857]
+position = Vector2(2080, 324)
+script = ExtResource("3_kijac")
+interaction_id = "town_entrance"
+hint_text = "[Interact] to enter the town"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="TownEntrance" unique_id=51376547]
+shape = SubResource("RectangleShape2D_0e4n2")
+
+[node name="Marker" type="ColorRect" parent="TownEntrance" unique_id=944891870]
+offset_left = -40.0
+offset_top = -40.0
+offset_right = 40.0
+offset_bottom = 40.0
+mouse_filter = 2
+color = Color(0.627451, 0.38431373, 0.22745098, 1)
+metadata/_edit_use_anchors_ = true
+
+[node name="DungeonEntrance" type="Area2D" parent="." unique_id=857716473]
+position = Vector2(1728, 1140)
+script = ExtResource("3_kijac")
+interaction_id = "dungeon_entrance"
+hint_text = "[Interact] to enter the dungeon"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="DungeonEntrance" unique_id=1181742717]
+shape = SubResource("RectangleShape2D_0e4n2")
+
+[node name="Marker" type="ColorRect" parent="DungeonEntrance" unique_id=1948772491]
+offset_left = -40.0
+offset_top = -40.0
+offset_right = 40.0
+offset_bottom = 40.0
+mouse_filter = 2
+color = Color(0.101960786, 0.101960786, 0.101960786, 1)
+metadata/_edit_use_anchors_ = true
+
 [node name="Player" parent="." unique_id=776830296 instance=ExtResource("1")]
 y_sort_enabled = true
 position = Vector2(576, 324)
@@ -148,12 +190,26 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
+[node name="HintLayer" type="CanvasLayer" parent="." unique_id=1976243598]
+layer = 10
+offset = Vector2(0, 40)
+transform = Transform2D(1, 0, 0, 1, 0, 40)
+
+[node name="InteractHint" type="Label" parent="HintLayer" unique_id=552050290]
+visible = false
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -20.0
+offset_right = 20.0
+offset_bottom = 23.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 24
+horizontal_alignment = 1
+
 [node name="PauseMenu" parent="." unique_id=1759277064 instance=ExtResource("5")]
 
 [node name="DialogueBox" parent="." unique_id=962633115 instance=ExtResource("6")]
 
-[node name="Tree01" parent="." unique_id=931367404 instance=ExtResource("2_ynnp2")]
-position = Vector2(456, 848)
-
-[node name="Tree02" parent="." unique_id=2062807778 instance=ExtResource("2_ynnp2")]
-position = Vector2(1056, 808)
+[node name="Tree01" parent="." unique_id=1881697165 instance=ExtResource("2_ynnp2")]
+position = Vector2(1016, 824)

@@ -43,6 +43,40 @@ func toggle_world() -> void:
 		switch_to_world(World.REAL_WORLD)
 
 
+# --- RPG Sub-Location Switching ---
+# Within the RPG world the player can be in different "places": the
+# overworld (the green map with paths and trees), a town, a dungeon,
+# etc. We track that here so main.gd knows which RPG scene to load.
+#
+# `current_world` is REAL_WORLD vs RPG. `rpg_location` is only meaningful
+# when current_world == RPG, but it's safe to read at any time — it just
+# describes "if/when we go to the RPG, where will we land".
+
+enum RPGLocation { OVERWORLD, TOWN, DUNGEON }
+
+# Default RPG entry point: the overworld. Switching to a different
+# location (TOWN/DUNGEON) is done via switch_rpg_location below.
+var rpg_location: RPGLocation = RPGLocation.OVERWORLD
+
+# Broadcast whenever rpg_location changes. main.gd listens to this so
+# it can swap the active RPG sub-scene (overworld → town, etc.) without
+# unloading the player from the RPG world entirely.
+signal rpg_location_changed(new_location: RPGLocation)
+
+# When the player enters a town/dungeon from the overworld, we save where
+# they were standing so we can drop them back at the same spot when they
+# return. Vector2.ZERO is the "no saved position, use the scene's default
+# spawn" sentinel — reset to ZERO after the overworld consumes it.
+var overworld_return_position: Vector2 = Vector2.ZERO
+
+
+func switch_rpg_location(loc: RPGLocation) -> void:
+	if loc == rpg_location:
+		return
+	rpg_location = loc
+	rpg_location_changed.emit(loc)
+
+
 # --- Progression Flags (stubs for future phases) ---
 
 # A dictionary of arbitrary named flags the game can set/read.
