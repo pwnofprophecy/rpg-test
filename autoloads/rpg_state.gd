@@ -62,6 +62,15 @@ var gold: int = 0
 # mutating this directly, so the stats_changed signal fires consistently.
 var status_effects: Array[String] = []
 
+# --- Equipment slots ---
+# The Hero can have one of each slot equipped. `null` means the slot
+# is empty (e.g. unarmed when no weapon is equipped). Mutate via
+# equip() / unequip() rather than assigning these directly so the
+# stats_changed signal fires and any UI listeners refresh.
+var equipped_weapon: Equipment = null
+var equipped_armor: Equipment = null
+var equipped_accessory: Equipment = null
+
 # Emitted whenever any stat or status effect changes. UI (HUD, battle menus)
 # can connect and refresh without polling.
 signal stats_changed
@@ -99,6 +108,13 @@ func _seed_from_template(include_name: bool) -> void:
 
 	if include_name:
 		character_name = t.character_name
+		# Full reset (include_name=true) also clears equipment so a
+		# fresh "new game" starts unarmed/unarmored. Boot-time seeding
+		# (include_name=false) leaves equipment alone since the
+		# autoload's slots are already null on first init anyway.
+		equipped_weapon = null
+		equipped_armor = null
+		equipped_accessory = null
 	max_hp = t.max_hp
 	hp = t.max_hp
 	max_mp = t.max_mp
@@ -148,3 +164,95 @@ func clear_statuses() -> void:
 		return
 	status_effects.clear()
 	stats_changed.emit()
+
+
+# --- Equipment helpers ---
+# All mutations route through equip() / unequip() so the stats_changed
+# signal fires once per change, letting the sandbox / future HUDs
+# refresh effective-stat readouts automatically.
+
+func equip(item: Equipment) -> void:
+	if item == null:
+		return
+	match item.slot:
+		Equipment.Slot.WEAPON:
+			equipped_weapon = item
+		Equipment.Slot.ARMOR:
+			equipped_armor = item
+		Equipment.Slot.ACCESSORY:
+			equipped_accessory = item
+		_:
+			push_warning("RPGState.equip: unknown slot %s" % item.slot)
+			return
+	stats_changed.emit()
+
+
+func unequip(slot: Equipment.Slot) -> void:
+	match slot:
+		Equipment.Slot.WEAPON:
+			equipped_weapon = null
+		Equipment.Slot.ARMOR:
+			equipped_armor = null
+		Equipment.Slot.ACCESSORY:
+			equipped_accessory = null
+	stats_changed.emit()
+
+
+func get_equipped(slot: Equipment.Slot) -> Equipment:
+	match slot:
+		Equipment.Slot.WEAPON:
+			return equipped_weapon
+		Equipment.Slot.ARMOR:
+			return equipped_armor
+		Equipment.Slot.ACCESSORY:
+			return equipped_accessory
+	return null
+
+
+# --- Effective stats (base + equipment bonuses) ---
+# The damage formula and any HUD that wants to show a "true" current
+# stat reads through these methods. Base values (max_hp, attack, etc.)
+# stay untouched; equipment effects layer on top via _equipment_bonus.
+#
+# Why per-stat methods rather than one generic getter? Type clarity at
+# call sites — battle.gd reads RPGState.get_effective_attack() and the
+# return type is `int`, not `Variant`.
+
+func get_effective_max_hp() -> int:
+	return max_hp + _equipment_bonus("hp_bonus")
+
+func get_effective_max_mp() -> int:
+	return max_mp + _equipment_bonus("mp_bonus")
+
+func get_effective_attack() -> int:
+	return attack + _equipment_bonus("attack_bonus")
+
+func get_effective_defense() -> int:
+	return defense + _equipment_bonus("defense_bonus")
+
+func get_effective_speed() -> int:
+	return speed + _equipment_bonus("speed_bonus")
+
+func get_effective_intelligence() -> int:
+	return intelligence + _equipment_bonus("intelligence_bonus")
+
+func get_effective_luck() -> int:
+	return luck + _equipment_bonus("luck_bonus")
+
+func get_effective_base_power() -> int:
+	return base_power + _equipment_bonus("power_bonus")
+
+
+# Sums a single bonus field across all three equipment slots. Used by
+# every get_effective_* method above so they all share the same
+# "iterate slots, sum field" code path. Field names match Equipment
+# resource property names.
+func _equipment_bonus(field: String) -> int:
+	var sum: int = 0
+	for eq in [equipped_weapon, equipped_armor, equipped_accessory]:
+		if eq != null:
+			# eq.get() returns Variant; explicit int() cast keeps the
+			# accumulator strictly int and avoids "untyped sum"
+			# inference warnings in stricter GDScript modes.
+			sum += int(eq.get(field))
+	return sum

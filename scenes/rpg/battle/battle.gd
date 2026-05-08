@@ -81,6 +81,61 @@ var current_state: BattleState  # Tracks which phase we're currently in
 # "@onready" means this gets assigned as soon as the scene is ready to use.
 # The "$BattleUI" is shorthand for "find the child node named BattleUI".
 @onready var battle_ui: CanvasLayer = $BattleUI
+# References to the on-screen sprites for spawning floating damage numbers
+# above whoever just took a hit. Both placed by the .tscn — see scene tree.
+@onready var player_sprite: Node2D = $PlayerSprite
+@onready var enemy_sprite: Node2D = $EnemySprite
+
+# How far above each sprite's origin the floating damage number spawns.
+# Negative Y because Godot's screen Y grows downward. Tweak per sprite if
+# the .tscn sprites change size — currently both sprites share the same
+# 4× scale so a single offset works for both.
+const POPUP_OFFSET: Vector2 = Vector2(0, -100)
+
+# --- Lunge animation tuning ---
+# How many pixels the attacker moves toward the target at the peak of
+# the lunge.
+const LUNGE_DISTANCE: float = 50.0
+# Forward / return durations. Forward is snappier (fast wind-up) and
+# return is slightly longer (relaxed settle back to position).
+const LUNGE_FORWARD_DURATION: float = 0.15
+const LUNGE_RETURN_DURATION: float = 0.20
+
+# --- Hit effect tuning (flash + shake on the defender) ---
+# Color tint applied during the flash. Saturated red over white texture
+# reads as "ouch" without needing a shader. Brief duration so it doesn't
+# linger.
+const FLASH_COLOR: Color = Color(1.6, 0.4, 0.4, 1.0)
+const FLASH_IN_DURATION: float = 0.05
+const FLASH_OUT_DURATION: float = 0.18
+# Horizontal shake — three quick steps (right, left, settle).
+const SHAKE_OFFSET: float = 8.0
+const SHAKE_STEP_DURATION: float = 0.05
+
+# --- Camera shake (whole-battle) tuning ---
+# Camera shake jiggles the Battle root Node2D, which moves all sprites
+# and popups together but NOT the BattleUI CanvasLayer (canvas layers
+# have their own transform). This gives a "world reacts to impact"
+# feel without messing with the HP bars or text.
+const CAM_SHAKE_INTENSITY_NORMAL: float = 4.0
+const CAM_SHAKE_INTENSITY_CRIT: float = 8.0
+const CAM_SHAKE_DURATION: float = 0.18
+const CAM_SHAKE_STEPS: int = 6  # number of random offsets before settling
+
+# --- Screen flash tuning (crit only) ---
+# A full-screen tinted overlay that fades from full to zero alpha. The
+# color's own alpha is the peak intensity; the tween reduces modulate.a
+# to fade out.
+const SCREEN_FLASH_COLOR: Color = Color(1.0, 0.95, 0.7, 0.55)  # warm gold
+const SCREEN_FLASH_DURATION: float = 0.30
+
+# --- Hit-pause (hitstop) tuning ---
+# Briefly sets Engine.time_scale to 0 so every running tween freezes at
+# the moment of impact. Crits get a longer pause to emphasize them.
+# Real-time durations (ignore_time_scale=true on the timer), so the
+# pause itself isn't affected by its own time scale change.
+const HIT_PAUSE_NORMAL: float = 0.04
+const HIT_PAUSE_CRIT: float = 0.10
 
 
 # _ready is called once automatically when the scene first loads.
@@ -89,15 +144,27 @@ func _ready() -> void:
 	_seed_enemy_stats_from_source()
 	enemy_hp = _enemy_max_hp
 
+	# Background ColorRect defaults to mouse_filter = STOP — meaning any
+	# click in its full-screen area gets consumed before _unhandled_input
+	# can fire. That breaks the "click anywhere to dismiss" flow for
+	# end-of-battle text. ColorRect is purely decorative here, so make
+	# it click-transparent.
+	$Background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
 	# Push player + enemy max HP / current HP to the UI. The bars in the
 	# .tscn have placeholder max values (10/8) — these calls overwrite
 	# them with the real stats so the fill ratio is correct from frame 1.
 	battle_ui.set_player_name(RPGState.character_name)
 	battle_ui.set_enemy_name(_enemy_name)
-	battle_ui.set_player_max_hp(RPGState.max_hp)
+	# Use effective max HP so a Hero with armor equipped shows the
+	# correct expanded HP bar (e.g. base 30 + leather armor 10 = 40).
+	battle_ui.set_player_max_hp(RPGState.get_effective_max_hp())
 	battle_ui.set_enemy_max_hp(_enemy_max_hp)
-	battle_ui.update_player_hp(RPGState.hp)
-	battle_ui.update_enemy_hp(enemy_hp)
+	# `false` = no drain animation on first display; just snap to the
+	# correct value. Otherwise both bars would visibly tween from the
+	# .tscn placeholder values up to the real values at battle start.
+	battle_ui.update_player_hp(RPGState.hp, false)
+	battle_ui.update_enemy_hp(enemy_hp, false)
 
 	# "Connect" means: whenever the UI tells us the player picked an action,
 	# automatically call our _on_action_selected function with that choice.
@@ -140,8 +207,21 @@ func _seed_enemy_stats_from_source() -> void:
 # battle. We do this here rather than in battle_ui because the UI is
 # generic — it doesn't know which messages are the final ones. The state
 # machine knows.
+#
+# Both Enter (ui_accept) and a left-click anywhere on the screen
+# dismiss the end-of-battle text. The mouse path matches what we did
+# for the action menu and sub-menu so the whole battle is keyboard-OR-
+# mouse playable.
 func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_action_pressed("ui_accept"):
+	# GDScript 4 doesn't narrow `event` to InputEventMouseButton inside
+	# the same expression as the `is` check — `event.pressed` would
+	# still resolve to Variant, which makes := fail to infer. So we
+	# split the check into a separate cast.
+	var dismiss: bool = event.is_action_pressed("ui_accept")
+	if not dismiss and event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event
+		dismiss = mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT
+	if not dismiss:
 		return
 	match current_state:
 		BattleState.WIN:
@@ -225,24 +305,49 @@ func _on_action_selected(action: String) -> void:
 func _run_player_attack() -> void:
 	battle_ui.hide_menu()
 
+	# Effective stats include equipment bonuses (weapon power, +attack
+	# from armor, etc.). Defender side is the raw enemy defense — enemies
+	# don't have equipment in Phase 3.5.
 	var roll: Dictionary = _calculate_damage(
-		RPGState.attack, RPGState.base_power, RPGState.luck, _enemy_defense)
+		RPGState.get_effective_attack(),
+		RPGState.get_effective_base_power(),
+		RPGState.get_effective_luck(),
+		_enemy_defense)
 	var damage: int = roll["damage"]
 	var is_crit: bool = roll["crit"]
 
-	# Subtract damage from enemy HP, but don't let it go below 0.
 	enemy_hp = maxi(enemy_hp - damage, 0)
-	battle_ui.update_enemy_hp(enemy_hp)
 
-	# Show "Critical hit! +damage!" on crit, otherwise the normal line.
-	# This is just text — the actual mechanical effect is already baked
-	# into the damage value.
-	var msg: String = "%s attacks! %d damage!" % [RPGState.character_name, damage]
+	# Lunge forward at the enemy. We await the forward motion so the hit
+	# effects land at the apex (where the player's "weapon" would meet the
+	# enemy), then start the return motion in parallel with the rest.
+	await _lunge_at(player_sprite, enemy_sprite.global_position)
+
+	# Hit lands: flash + shake the enemy, float the damage number, drain
+	# their HP bar, shake the camera, flash the screen on crit. All
+	# parallel; the actual hp is already updated above.
+	_hit_effect(enemy_sprite)
+	DamagePopup.spawn(self, enemy_sprite.global_position + POPUP_OFFSET, damage, is_crit)
+	battle_ui.update_enemy_hp(enemy_hp)
+	_camera_shake(
+		CAM_SHAKE_INTENSITY_CRIT if is_crit else CAM_SHAKE_INTENSITY_NORMAL,
+		CAM_SHAKE_DURATION)
 	if is_crit:
-		msg = "Critical hit! " + msg
+		_screen_flash(SCREEN_FLASH_COLOR, SCREEN_FLASH_DURATION)
+
+	# Hitstop: freeze every running tween for a beat so the eye registers
+	# the impact. Crits get a longer freeze than normal hits.
+	await _hit_pause(HIT_PAUSE_CRIT if is_crit else HIT_PAUSE_NORMAL)
+
+	# Return motion runs concurrently with the text-display pause below.
+	_lunge_back(player_sprite)
+
+	var msg: String = "%s attacks!" % RPGState.character_name
+	if is_crit:
+		msg += " Critical hit!"
 	battle_ui.set_message(msg)
 
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(1.0).timeout
 
 	if enemy_hp <= 0:
 		_change_state(BattleState.WIN)
@@ -252,8 +357,11 @@ func _run_player_attack() -> void:
 
 # Resolves the enemy's attack against the player.
 func _run_enemy_turn() -> void:
+	# Defender is the player here, so use their effective defense (base
+	# + armor + accessory bonuses).
 	var roll: Dictionary = _calculate_damage(
-		_enemy_attack, _enemy_base_power, _enemy_luck, RPGState.defense)
+		_enemy_attack, _enemy_base_power, _enemy_luck,
+		RPGState.get_effective_defense())
 	var damage: int = roll["damage"]
 	var is_crit: bool = roll["crit"]
 
@@ -262,13 +370,27 @@ func _run_enemy_turn() -> void:
 	# (overworld pause menu, future status panels) refresh without polling.
 	RPGState.hp = maxi(RPGState.hp - damage, 0)
 	RPGState.stats_changed.emit()
-	battle_ui.update_player_hp(RPGState.hp)
 
-	var msg: String = "%s attacks! %d damage!" % [_enemy_name, damage]
+	# Enemy lunges at the player, hit effects land, then enemy retreats.
+	await _lunge_at(enemy_sprite, player_sprite.global_position)
+	_hit_effect(player_sprite)
+	DamagePopup.spawn(self, player_sprite.global_position + POPUP_OFFSET, damage, is_crit)
+	battle_ui.update_player_hp(RPGState.hp)
+	_camera_shake(
+		CAM_SHAKE_INTENSITY_CRIT if is_crit else CAM_SHAKE_INTENSITY_NORMAL,
+		CAM_SHAKE_DURATION)
 	if is_crit:
-		msg = "Critical hit! " + msg
+		_screen_flash(SCREEN_FLASH_COLOR, SCREEN_FLASH_DURATION)
+
+	await _hit_pause(HIT_PAUSE_CRIT if is_crit else HIT_PAUSE_NORMAL)
+
+	_lunge_back(enemy_sprite)
+
+	var msg: String = "%s attacks!" % _enemy_name
+	if is_crit:
+		msg += " Critical hit!"
 	battle_ui.set_message(msg)
-	await get_tree().create_timer(1.5).timeout
+	await get_tree().create_timer(1.0).timeout
 
 	if RPGState.hp <= 0:
 		_change_state(BattleState.LOSE)
@@ -346,6 +468,144 @@ func _run_lose() -> void:
 func _run_escape_outcome() -> void:
 	battle_ui.hide_menu()
 	battle_ui.set_message("Got away safely!")
+
+
+# --- Visual effect helpers ---
+# All three of these (lunge, flash, shake) tween a sprite's transform or
+# modulate temporarily. They use `set_meta("origin", ...)` on first call
+# to remember the sprite's original position so subsequent calls always
+# return to the same baseline — important because the player and enemy
+# sprites get hit on alternating turns.
+
+# Moves the attacker partway toward `target_pos`, then awaits the tween.
+# Caller follows up with hit effects on the defender, then calls
+# _lunge_back() to start the return motion. The return is intentionally
+# NOT awaited so the rest of the turn (text, HP drain) can run in
+# parallel with the attacker settling back.
+func _lunge_at(attacker: Node2D, target_pos: Vector2) -> void:
+	if not attacker.has_meta("origin"):
+		attacker.set_meta("origin", attacker.position)
+	var origin: Vector2 = attacker.get_meta("origin")
+
+	# Direction vector points from the attacker's current world position
+	# toward the target. We only travel LUNGE_DISTANCE pixels — not all
+	# the way — so the sprites visually "almost touch" rather than
+	# overlap.
+	var direction: Vector2 = (target_pos - attacker.global_position).normalized()
+	var lunge_pos: Vector2 = origin + direction * LUNGE_DISTANCE
+
+	var tween := create_tween()
+	tween.tween_property(attacker, "position", lunge_pos, LUNGE_FORWARD_DURATION) \
+		.set_trans(Tween.TRANS_CUBIC) \
+		.set_ease(Tween.EASE_OUT)
+	await tween.finished
+
+
+# Sends the attacker back to its origin. Fire-and-forget — caller doesn't
+# await; the return runs in the background while the rest of the turn
+# state machine continues.
+func _lunge_back(attacker: Node2D) -> void:
+	if not attacker.has_meta("origin"):
+		return
+	var origin: Vector2 = attacker.get_meta("origin")
+	var tween := create_tween()
+	tween.tween_property(attacker, "position", origin, LUNGE_RETURN_DURATION) \
+		.set_trans(Tween.TRANS_CUBIC) \
+		.set_ease(Tween.EASE_IN)
+
+
+# Plays the "got hit" visual on a defender: a brief red tint flash plus
+# a quick horizontal shake. Both run in parallel so the effect feels
+# like a single event rather than a sequence. Fire-and-forget — caller
+# doesn't await.
+func _hit_effect(target: Node2D) -> void:
+	if not target.has_meta("origin"):
+		target.set_meta("origin", target.position)
+	var origin: Vector2 = target.get_meta("origin")
+
+	# Two independent tweens so the flash (modulate) and the shake
+	# (position) can run truly in parallel without conflicting steps.
+
+	var flash_tween := create_tween()
+	flash_tween.tween_property(target, "modulate", FLASH_COLOR, FLASH_IN_DURATION)
+	flash_tween.tween_property(target, "modulate", Color.WHITE, FLASH_OUT_DURATION)
+
+	var shake_tween := create_tween()
+	shake_tween.tween_property(target, "position", origin + Vector2(SHAKE_OFFSET, 0), SHAKE_STEP_DURATION)
+	shake_tween.tween_property(target, "position", origin - Vector2(SHAKE_OFFSET, 0), SHAKE_STEP_DURATION)
+	shake_tween.tween_property(target, "position", origin, SHAKE_STEP_DURATION)
+
+
+# Shakes the entire battle world (Battle root Node2D) by tweening its
+# position through a series of random offsets, then settling back to
+# origin. Fire-and-forget. The Battle root is at (0,0) per the .tscn,
+# so we always settle there. CanvasLayer children (BattleUI) are
+# unaffected — their transform is independent — so the HP bars and
+# text don't shake along with the sprites.
+func _camera_shake(intensity: float, duration: float) -> void:
+	# Save the origin via metadata in case future scene work moves the
+	# Battle root off (0,0). Same pattern as _lunge_at uses.
+	if not has_meta("origin"):
+		set_meta("origin", position)
+	var origin: Vector2 = get_meta("origin")
+
+	var step_duration: float = duration / float(CAM_SHAKE_STEPS + 1)
+	var tween := create_tween()
+	for i in CAM_SHAKE_STEPS:
+		var offset := Vector2(
+			randf_range(-intensity, intensity),
+			randf_range(-intensity, intensity))
+		tween.tween_property(self, "position", origin + offset, step_duration)
+	# Final step settles back to origin so the sprites don't drift.
+	tween.tween_property(self, "position", origin, step_duration)
+
+
+# Spawns a full-screen colored overlay that fades from its initial
+# alpha (baked into `color`) to zero over `duration`. Lives on a
+# dedicated CanvasLayer with a high layer number so it draws on top of
+# the BattleUI HP bars / text. Self-cleaning — the layer + rect free
+# themselves when the fade completes. Fire-and-forget.
+func _screen_flash(color: Color, duration: float) -> void:
+	var layer := CanvasLayer.new()
+	# Layer 100 is above BattleUI (default 1) and above any tier overlay
+	# we'd add later (5). Anything below this layer renders before the
+	# flash, so the flash tints everything visible.
+	layer.layer = 100
+	add_child(layer)
+
+	var rect := ColorRect.new()
+	rect.color = color
+	# Anchor to fill the screen.
+	rect.anchor_right = 1.0
+	rect.anchor_bottom = 1.0
+	# Don't intercept clicks (irrelevant for this game but good hygiene).
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(rect)
+
+	var tween := create_tween()
+	tween.tween_property(rect, "modulate:a", 0.0, duration)
+	await tween.finished
+	layer.queue_free()
+
+
+# Briefly sets Engine.time_scale to 0 so all running tweens freeze in
+# place. The freeze is awaited via a real-time timer (ignore_time_scale
+# = true on the SceneTreeTimer) so it actually unfreezes. After the
+# pause, time_scale returns to 1.0 and tweens resume from where they
+# stopped.
+#
+# This is "hitstop": a tiny moment of suspended time at the impact
+# instant that makes hits feel weighty in action games. The eye reads
+# it as "the world is reacting to the blow." Crits use a longer pause
+# than normal hits.
+func _hit_pause(duration: float) -> void:
+	Engine.time_scale = 0.0
+	# Args to create_timer: (time_sec, process_always, physics, ignore_time_scale).
+	# We need ignore_time_scale=true so the timer counts real seconds;
+	# otherwise it would also be frozen by our own time_scale=0 and
+	# never elapse.
+	await get_tree().create_timer(duration, true, false, true).timeout
+	Engine.time_scale = 1.0
 
 
 # Sends the player back to wherever the battle was triggered from.

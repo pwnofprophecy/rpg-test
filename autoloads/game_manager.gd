@@ -107,6 +107,13 @@ var pending_battle_enemy: Resource = null
 # usual rpg_battle_return_location. Cleared by battle.gd after consuming.
 var battle_returns_to_sandbox: bool = false
 
+# The enemy the sandbox dropdown was last set to. Persisted here (rather
+# than on the sandbox node) because the sandbox scene gets fully unloaded
+# and reloaded around each battle — without this, the dropdown would
+# reset to its alphabetical default every time. Matched against the
+# enemy list on sandbox _ready to restore the user's selection.
+var sandbox_selected_enemy: Resource = null
+
 
 # --- Progression Flags (stubs for future phases) ---
 

@@ -42,6 +42,12 @@ signal action_selected(action: String)
 	$MenuBox/MenuGrid/RunLabel,
 ]
 
+# How long an HP bar takes to "drain" from its old value to the new one.
+# Short enough to feel snappy, long enough to read as motion. Keep this
+# under the battle's 1.5s post-hit pause so a single damage event always
+# finishes draining before the next state transition.
+const HP_DRAIN_DURATION: float = 0.4
+
 # --- Menu State ---
 var cursor_index: int = 0    # Which menu option is currently highlighted (0–3)
 var menu_active: bool = false      # True when the player can navigate the main menu
@@ -53,14 +59,86 @@ var sub_menu_active: bool = false  # True when the player is inside Cast or Item
 const ACTIONS: Array[String] = ["attack", "cast", "item", "run"]
 
 
+# Wires mouse support onto the menu labels. Labels default to
+# mouse_filter = IGNORE (they don't intercept clicks), which is fine
+# for the keyboard-only flow but blocks any mouse interaction. Setting
+# them to STOP makes them receive hover and click events. We then:
+#   - mouse_entered → moves the cursor to whatever the pointer is over
+#     (so visual highlight tracks the mouse the same way it tracks
+#     arrow-key navigation)
+#   - gui_input → on a left click, confirms that option just like
+#     pressing Enter would
+#
+# The bound `i` argument tells each handler which menu slot it belongs
+# to without needing to look up "which label fired this signal".
+func _ready() -> void:
+	for i in menu_labels.size():
+		var label: Label = menu_labels[i]
+		label.mouse_filter = Control.MOUSE_FILTER_STOP
+		label.mouse_entered.connect(_on_menu_label_hovered.bind(i))
+		label.gui_input.connect(_on_menu_label_input.bind(i))
+
+	# Make non-interactive UI panels transparent to mouse clicks so
+	# left-clicks fall through to battle.gd's _unhandled_input for
+	# dismissing end-of-battle text ("GOBLIN was defeated!", "HERO has
+	# died.", etc.). Without this, clicking on the TextBox panel (which
+	# covers a wide strip at the bottom of the screen) or the HP bars
+	# is consumed before _unhandled_input fires — those Controls
+	# default to MOUSE_FILTER_STOP. The menu Labels already have STOP
+	# explicitly set above so they still receive their own clicks for
+	# action selection.
+	var pass_through: Array = [
+		$TextBox,
+		$TextBox/MarginContainer,
+		$PlayerHealthBar,
+		$EnemyHealthBar,
+		player_hp_bar,
+		enemy_hp_bar,
+	]
+	for ctrl in pass_through:
+		(ctrl as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+# Pointer moved over a menu option. Move the cursor there so the ">"
+# indicator follows the mouse — same visual as keyboard nav. No-op
+# while the menu isn't accepting input (during attack animations,
+# intro, etc.) so hovering during a wait doesn't visually fake-out
+# the player.
+func _on_menu_label_hovered(idx: int) -> void:
+	if not menu_active:
+		return
+	cursor_index = idx
+	_update_cursor()
+
+
+# Pointer clicked on a menu option. Treat exactly like pressing Enter
+# while that option is highlighted: emit the action and disable the
+# menu so further input doesn't double-fire. We update cursor_index
+# first so the > sits on the clicked option for the brief moment
+# before the menu hides.
+func _on_menu_label_input(event: InputEvent, idx: int) -> void:
+	if not menu_active:
+		return
+	if not _is_left_click(event):
+		return
+	cursor_index = idx
+	_update_cursor()
+	menu_active = false
+	action_selected.emit(ACTIONS[idx])
+	get_viewport().set_input_as_handled()
+
+
 # _unhandled_input is called automatically by Godot whenever a key is pressed,
 # but only if no other node has already "handled" it.
 # We use this to drive menu navigation without needing a polling loop.
 func _unhandled_input(event: InputEvent) -> void:
 	# If we're inside a sub-menu (Cast or Item), any confirm/cancel key
-	# sends the player back to the main menu.
+	# OR a left-click anywhere sends the player back to the main menu.
 	if sub_menu_active:
-		if event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_cancel"):
+		var dismiss := (event.is_action_pressed("ui_accept")
+			or event.is_action_pressed("ui_cancel")
+			or _is_left_click(event))
+		if dismiss:
 			sub_menu_active = false
 			action_selected.emit("back")  # Tell battle.gd to return to PLAYER_MENU
 			get_viewport().set_input_as_handled()  # Prevent other nodes reacting to this keypress
@@ -118,19 +196,58 @@ func set_message(text: String) -> void:
 
 
 # Updates the player's HP bar to reflect the new value.
-# Also updates the bar's color based on remaining health percentage,
-# and refreshes the "X / Y" text overlay if one exists.
-func update_player_hp(value: int) -> void:
-	player_hp_bar.value = value
-	_update_bar_color(player_hp_bar)
-	_refresh_hp_text(player_hp_text, player_hp_bar)
+# The bar smoothly drains from its current value to the new one over
+# HP_DRAIN_DURATION seconds; the "X / Y" text overlay tracks the
+# interpolated integer value so it stays in sync. Color refresh runs
+# at the end (so the green/yellow/red transition lines up with the
+# actual remaining ratio rather than the in-progress one).
+#
+# Pass `animate = false` for the initial setup (battle.gd._ready) so
+# the bar snaps to the correct value instead of visibly filling up
+# from the .tscn placeholder.
+func update_player_hp(value: int, animate: bool = true) -> void:
+	if animate:
+		_animate_hp_bar(player_hp_bar, player_hp_text, value)
+	else:
+		_set_hp_bar_instant(player_hp_bar, player_hp_text, value)
 
 
 # Updates the enemy's HP bar to reflect the new value.
-func update_enemy_hp(value: int) -> void:
-	enemy_hp_bar.value = value
-	_update_bar_color(enemy_hp_bar)
-	_refresh_hp_text(enemy_hp_text, enemy_hp_bar)
+func update_enemy_hp(value: int, animate: bool = true) -> void:
+	if animate:
+		_animate_hp_bar(enemy_hp_bar, enemy_hp_text, value)
+	else:
+		_set_hp_bar_instant(enemy_hp_bar, enemy_hp_text, value)
+
+
+# Instant version — used for initial setup so the bar shows the right
+# value on frame 1 instead of tweening from the placeholder.
+func _set_hp_bar_instant(bar: ProgressBar, text: Label, value: int) -> void:
+	bar.value = value
+	_update_bar_color(bar)
+	_refresh_hp_text(text, bar)
+
+
+# Tweens an HP bar from its current value to `target_value` while keeping
+# the optional text overlay in sync. Bar color recalculates at the end so
+# the threshold transitions (green→yellow→red) snap once on settle rather
+# than flickering through during the drain.
+func _animate_hp_bar(bar: ProgressBar, text: Label, target_value: int) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(bar, "value", target_value, HP_DRAIN_DURATION)
+	if text != null:
+		var start: int = int(bar.value)
+		var bar_max: int = int(bar.max_value)
+		# tween_method calls our setter every frame with an interpolated
+		# int between `start` and `target_value`, perfect for keeping the
+		# label number locked to the bar's animated fill ratio.
+		tween.tween_method(
+			func(v: int) -> void:
+				text.text = "%d / %d" % [v, bar_max],
+			start, target_value, HP_DRAIN_DURATION)
+	tween.set_parallel(false)
+	tween.tween_callback(_update_bar_color.bind(bar))
 
 
 # Sets the player's HP bar maximum so the fill ratio reflects real stats
@@ -212,3 +329,16 @@ func enter_sub_menu() -> void:
 	menu_box.visible = false
 	menu_active = false
 	sub_menu_active = true
+
+
+# Convenience: was this input a left mouse-button press? Used to treat a
+# click identically to pressing Enter for dismissing the sub-menu and
+# end-of-battle text. Uses an explicit cast after the `is` check so
+# `event.pressed` resolves to a known type — GDScript 4 doesn't narrow
+# event types within a single expression, so a return of an inline
+# boolean expression breaks type inference downstream.
+static func _is_left_click(event: InputEvent) -> bool:
+	if not (event is InputEventMouseButton):
+		return false
+	var mb: InputEventMouseButton = event
+	return mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT

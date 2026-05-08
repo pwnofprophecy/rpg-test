@@ -189,6 +189,27 @@ Enemies are defined as `EnemyStats` Resource `.tres` files in `res://resources/e
 
 `battle.gd` reads enemy stats from `GameManager.pending_battle_enemy` (an `EnemyStats` Resource) when set, and falls back to the @export defaults on the battle node otherwise. The combat sandbox uses this — it sets `pending_battle_enemy` before launching the battle. The random-encounter path on the overworld currently uses the @export defaults; later it'll set `pending_battle_enemy` based on the encounter table.
 
+## Equipment System
+The Hero has three equipment slots: **Weapon**, **Armor**, **Accessory**. Each holds at most one `Equipment` Resource. Equipment templates live as `.tres` files in `res://resources/equipment/`.
+
+**Resource shape** (`resources/equipment.gd`): `item_name`, `slot` (Slot enum: WEAPON/ARMOR/ACCESSORY), `description`, plus `*_bonus` fields for each stat the equipment can boost (`hp_bonus`, `mp_bonus`, `attack_bonus`, `defense_bonus`, `speed_bonus`, `intelligence_bonus`, `luck_bonus`, `power_bonus`).
+
+**RPGState API**:
+- `equip(item)` — auto-routes to the correct slot based on `item.slot`
+- `unequip(slot)` — clears that slot
+- `get_equipped(slot)` — read what's currently in a slot
+- `get_effective_<stat>()` — returns `<stat> + sum of equipment bonuses`. Used by `battle.gd` and any HUD that wants the "real" value.
+
+**Bonus stacking**: All three slots' bonuses for a given stat sum together. So a Wooden Sword (+2 attack) + Lucky Charm (+1 attack hypothetical) would give +3 effective attack on top of base.
+
+**`Reset to Defaults` clears equipment too** — `RPGState.reset_from_template()` with `include_name=true` (the public reset path) also nulls all three slots, since a "new game" should start unarmed.
+
+**Adding a new piece of equipment**: drop a `.tres` into `res://resources/equipment/`, fill in the Inspector fields. The combat sandbox auto-discovers it next time it loads (sorted by name within its slot).
+
+**Adding a new bonus stat type**: add an `@export var foo_bonus: int = 0` to `equipment.gd`, add a `get_effective_foo()` method to `RPGState` (calling `_equipment_bonus("foo_bonus")`), then update `battle.gd` to read through the effective getter where appropriate.
+
+**Adding a new slot type** (e.g. HELMET): add an enum entry to `Equipment.Slot`, a slot field to `RPGState`, match arms in `equip`/`unequip`/`get_equipped`, and an entry in `combat_sandbox.gd`'s `_EQUIPMENT_SLOTS` array.
+
 ## Battle Integration
 Random encounters are triggered by `rpg_overworld.gd`'s distance-based stepper. When the step counter hits zero, the overworld stashes the player's current position into `GameManager.overworld_return_position`, sets `GameManager.rpg_battle_return_location` to whatever location triggered the battle (currently always `OVERWORLD`; dungeons will set `DUNGEON` later), and switches to `RPGLocation.BATTLE`. `main.gd` swaps in `scenes/rpg/battle/battle.tscn`.
 
