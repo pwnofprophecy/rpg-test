@@ -30,10 +30,11 @@ extends Node2D
 enum BattleState {
 	INTRO,          # The opening message ("A GOBLIN appeared!")
 	PLAYER_MENU,    # Waiting for the player to pick an action
-	TARGET_SELECT,  # Player picked Attack; choosing which enemy to hit
+	ITEM_SELECT,    # Picking an item from the inventory list
+	TARGET_SELECT,  # Choosing the target of an attack or item
 	PLAYER_ATTACK,  # The player's attack is being resolved
 	ENEMY_TURN,     # The enemy(s) are taking their turn(s)
-	SUB_MENU,       # Player opened Cast or Item (currently empty stubs)
+	SUB_MENU,       # Player opened Cast (currently a stub)
 	WIN,            # All enemies defeated; waiting for player to confirm
 	LOSE,           # The player has been defeated; waiting for player to confirm
 	ESCAPE,         # The player ran away; waiting for confirm before returning
@@ -67,6 +68,10 @@ class BattleEnemy:
 	var hp_text: Label = null
 	var status_label: Label = null
 	var target_indicator: Label = null  # the "▼" cursor floated above when targeted
+	# Invisible Area2D layered over the sprite for mouse-based target
+	# selection. Hover → highlights, click → confirms target. Only
+	# meaningful during TARGET_SELECT state; the handlers no-op otherwise.
+	var target_area: Area2D = null
 
 	func is_alive() -> bool:
 		return hp > 0
@@ -108,11 +113,27 @@ const MAX_CRIT_CHANCE: float = 0.5        # Hard cap on crit chance (50%)
 # pending list was set (e.g. random-encounter path from the overworld).
 var _enemies: Array = []  # Array[BattleEnemy]
 
-# Index into _enemies for the player's currently-targeted enemy.
-# Updated in TARGET_SELECT state; consumed by _run_player_attack.
-# Auto-corrects to the first living enemy when entering TARGET_SELECT
-# so the cursor never sits on a corpse.
+# Target index for the player's current selection in TARGET_SELECT.
+# -1 means the player is targeting themselves (only valid for item
+# use, never attacks). 0..N-1 means the player is targeting
+# _enemies[i]. Auto-corrects to the first living enemy or to -1
+# (depending on context) when entering TARGET_SELECT so the cursor
+# never sits on a dead enemy or invalid target.
 var _target_index: int = 0
+const TARGET_INDEX_PLAYER: int = -1
+
+# When set, TARGET_SELECT's confirm path applies this item to the
+# chosen target instead of starting a regular attack. battle_ui's
+# item_selected signal hands the picked Item here. Cleared after
+# the item resolves (or on cancel back to the item menu).
+var _pending_item: Item = null
+
+# Tracks whether the player has already taken their per-turn status
+# tick (poison damage, etc.) this turn. Prevents double-ticking when
+# the player cancels out of a sub-menu (item menu, target select) and
+# re-commits to a different action. Reset to false at the start of
+# each new player turn.
+var _player_ticked_this_turn: bool = false
 
 var current_state: BattleState  # Tracks which phase we're currently in
 
@@ -126,10 +147,25 @@ var current_state: BattleState  # Tracks which phase we're currently in
 # (we hide it in _ready); _spawn_enemies handles all real enemy sprites.
 @onready var player_sprite: Node2D = $PlayerSprite
 
+# Player-side target indicator (▼) and clickable Area2D for mouse
+# targeting. Mirror the ones on each BattleEnemy but for the player.
+# Created in _ready and shown only during TARGET_SELECT when the
+# player is a valid target (i.e. when _pending_item != null).
+var _player_target_indicator: Label = null
+var _player_target_area: Area2D = null
+
 # How far above each sprite's origin the floating damage number spawns.
 # Negative Y because Godot's screen Y grows downward. Tweak per sprite if
 # the .tscn sprites change size.
 const POPUP_OFFSET: Vector2 = Vector2(0, -90)
+
+# Popup colors for non-attack damage / healing events. Distinct from
+# normal white (attack damage) and gold (crit) so the type of effect
+# reads at a glance. The poison-tick color is its own constant in the
+# status section below.
+const HEAL_HP_POPUP_COLOR: Color = Color(0.4, 1.0, 0.4)   # bright green
+const HEAL_MP_POPUP_COLOR: Color = Color(0.4, 0.6, 1.0)   # blue
+const ITEM_DAMAGE_POPUP_COLOR: Color = Color(1.0, 0.7, 0.3)  # orange (distinct from white attack)
 
 # --- Multi-enemy layout ---
 # Sprites lay out in a horizontal row centered on ENEMY_ROW_CENTER_X
@@ -146,6 +182,13 @@ const ENEMY_SPRITE_SCALE: Vector2 = Vector2(3.0, 3.0)
 # Where the player sprite sits — moved down from the original (200, 400)
 # so the upper portion of the screen has room for enemies + their bars.
 const PLAYER_SPRITE_POSITION: Vector2 = Vector2(200, 470)
+
+# Extra padding (in local sprite-space pixels, before scale) added to
+# each side of the mouse-click target area. Gives the player a more
+# forgiving click radius — a tiny enemy doesn't require pixel-perfect
+# aim. Scaled by the sprite's scale at runtime, so 20 px in local
+# space becomes 60 px at the default 3× scale.
+const TARGET_AREA_PADDING: float = 20.0
 
 # --- Enemy HP bar layout ---
 # Each enemy gets a VBoxContainer with NameLabel + HPBar (with HPText
@@ -211,6 +254,19 @@ const SCREEN_FLASH_DURATION: float = 0.30
 const HIT_PAUSE_NORMAL: float = 0.04
 const HIT_PAUSE_CRIT: float = 0.10
 
+# --- Death fade tuning ---
+# When an enemy hits 0 HP, their sprite and HP bar widget fade from
+# full opacity to invisible over this many seconds. Fast enough that
+# the next combatant's turn isn't waiting on it, slow enough that the
+# player reads the "death" as a moment rather than a snap.
+const DEATH_FADE_DURATION: float = 0.8
+# How long to wait BEFORE starting the fade. Set to match
+# battle_ui.gd's HP_DRAIN_DURATION (0.4s) so the bar finishes draining
+# to 0 — letting the player visually register the kill — before the
+# sprite starts disappearing. If you tune HP_DRAIN_DURATION over in
+# battle_ui.gd, update this number to match.
+const DEATH_FADE_DELAY: float = 0.4
+
 # --- Status effect tuning ---
 # Status effect names are simple String tags matching what's stored in
 # RPGState.status_effects. The first concrete status is POISONED, which
@@ -270,9 +326,52 @@ func _ready() -> void:
 	# Connect action menu signal. When UI tells us "player picked X",
 	# _on_action_selected runs.
 	battle_ui.action_selected.connect(_on_action_selected)
+	# Item menu signals — picking an item routes through item-targeting;
+	# cancel returns to the action menu.
+	battle_ui.item_selected.connect(_on_item_selected)
+	battle_ui.item_canceled.connect(_on_item_canceled)
+	# Cancel button shown during TARGET_SELECT. Same code path as
+	# pressing Esc — call _cancel_target so the dispatch logic
+	# (back to item menu vs back to action menu) is centralized.
+	battle_ui.target_cancel_clicked.connect(_cancel_target)
+
+	# Build the player-side target indicator (▼) and clickable Area2D
+	# so the player can be targeted by items the same way enemies are.
+	_build_player_target_widgets()
 
 	# Kick off with the intro sequence.
 	_change_state(BattleState.INTRO)
+
+
+# Creates the ▼ indicator above the player sprite and an invisible
+# Area2D over the sprite for mouse-based targeting. Both are hidden
+# / inert outside TARGET_SELECT — toggled visible by _set_target.
+func _build_player_target_widgets() -> void:
+	# ▼ floats above the player sprite. Parented to the sprite so it
+	# follows lunges and shakes; visibility controlled per-frame in
+	# _set_target / _clear_target_indicators.
+	_player_target_indicator = Label.new()
+	_player_target_indicator.text = "▼"
+	_player_target_indicator.add_theme_font_size_override("font_size", 24)
+	_player_target_indicator.add_theme_color_override("font_color", TARGET_TINT)
+	_player_target_indicator.position = Vector2(-10, -75)
+	_player_target_indicator.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_player_target_indicator.visible = false
+	player_sprite.add_child(_player_target_indicator)
+
+	# Clickable area covering the player sprite. Same pattern as the
+	# enemy Area2Ds — local-space shape scaled by the sprite's transform.
+	_player_target_area = Area2D.new()
+	var collision := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+	# Player sprite size is similar to the enemy placeholder; use a
+	# rough 70×100 local-space box plus the standard padding.
+	shape.size = Vector2(70, 100) + Vector2.ONE * TARGET_AREA_PADDING * 2.0
+	collision.shape = shape
+	_player_target_area.add_child(collision)
+	player_sprite.add_child(_player_target_area)
+	_player_target_area.mouse_entered.connect(_on_player_hovered)
+	_player_target_area.input_event.connect(_on_player_input_event)
 
 
 # Builds the _enemies list from one of two sources: the sandbox's
@@ -346,6 +445,27 @@ func _spawn_enemy_sprite(be: BattleEnemy, index: int, total: int) -> void:
 	add_child(sprite)
 	be.sprite = sprite
 	be.spawn_position = sprite.position
+
+	# Add an invisible clickable area covering the sprite. The Area2D
+	# is a child of the sprite, so it inherits the sprite's scale —
+	# the local-space shape size below gets multiplied by sprite.scale
+	# automatically. Padding gives extra forgiveness around the edges.
+	var area := Area2D.new()
+	var collision := CollisionShape2D.new()
+	var shape := RectangleShape2D.new()
+	var rect: Rect2 = sprite.get_rect()  # local-space, pre-scale
+	shape.size = rect.size + Vector2.ONE * TARGET_AREA_PADDING * 2.0
+	collision.shape = shape
+	area.add_child(collision)
+	sprite.add_child(area)
+	be.target_area = area
+
+	# Mouse hover → highlight (preview target). Click → confirm target.
+	# We bind the BattleEnemy instance so each handler knows which
+	# enemy was hit. The handlers themselves check current_state to
+	# silently no-op outside TARGET_SELECT.
+	area.mouse_entered.connect(_on_enemy_hovered.bind(be))
+	area.input_event.connect(_on_enemy_input_event.bind(be))
 
 
 # Returns the world position the enemy at `index` should sit at, given
@@ -536,9 +656,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # Routes input while in TARGET_SELECT. Left/Right cycles through
-# living enemies, Enter confirms, Backspace/Esc cancels back to the
-# action menu. Status tick already happened so we don't re-tick on
-# cancel — just bring the menu back.
+# valid targets (living enemies, plus the player when an item is
+# pending). Enter confirms, Backspace/Esc cancels. The cancel
+# destination depends on context — if cancelling item targeting,
+# back to the item menu; otherwise back to the action menu.
 func _handle_target_select_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_left"):
 		_move_target(-1)
@@ -547,42 +668,100 @@ func _handle_target_select_input(event: InputEvent) -> void:
 		_move_target(1)
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ui_accept"):
-		# Confirm — transition to PLAYER_ATTACK with the current target.
-		_clear_target_indicators()
+		# Confirm — route based on whether we're targeting for an
+		# attack or for an item.
+		_confirm_target()
 		get_viewport().set_input_as_handled()
-		_change_state(BattleState.PLAYER_ATTACK)
 	elif event.is_action_pressed("ui_cancel"):
-		# Cancel — back to the menu without consuming the turn.
-		# Note: status tick already fired, so the player's poison damage
-		# stuck. That matches classic JRPG behavior — cancelling a target
-		# selection still costs you the tick.
-		_clear_target_indicators()
+		# Cancel — destination depends on context.
+		_cancel_target()
 		get_viewport().set_input_as_handled()
+
+
+# Confirm-target dispatcher. The status tick fires here (once per
+# turn) — this is the real "commit" point where the player can no
+# longer back out. Then dispatches to either item use or attack.
+func _confirm_target() -> void:
+	_clear_target_indicators()
+	battle_ui.hide_target_cancel_button()
+	# Status tick fires AFTER target is confirmed. Bouncing around
+	# the menus / picker / target select doesn't trigger poison
+	# damage — only committing to an action does.
+	await _tick_player_if_needed()
+	if RPGState.hp <= 0:
+		# Poison killed us. Whatever target was picked doesn't matter.
+		_pending_item = null
+		_change_state(BattleState.LOSE)
+		return
+
+	if _pending_item != null:
+		var item: Item = _pending_item
+		_pending_item = null
+		var target: int = _target_index
+		# Exit TARGET_SELECT immediately so a stray double-click during
+		# the item-use animation can't re-fire targeting. We assign
+		# current_state directly (rather than _change_state) to avoid
+		# running _run_player_attack — _use_item handles its own
+		# transitions at the end.
+		current_state = BattleState.PLAYER_ATTACK
+		await _use_item(item, target)
+	else:
+		_change_state(BattleState.PLAYER_ATTACK)
+
+
+# Cancel-target dispatcher. With a pending item we go back to the
+# item menu (player can pick a different item). Without one, back
+# to the action menu. Status tick has NOT fired yet (we moved it
+# to _confirm_target), so cancelling is "free" — no poison damage
+# for backing out.
+func _cancel_target() -> void:
+	# Guard against this firing when we're not actually in target
+	# select (e.g. the Cancel button is hidden but a stray signal
+	# arrives). Without this, cancelling from non-target states
+	# could cause weird state transitions.
+	if current_state != BattleState.TARGET_SELECT:
+		return
+	_clear_target_indicators()
+	battle_ui.hide_target_cancel_button()
+	if _pending_item != null:
+		_pending_item = null
+		_change_state(BattleState.ITEM_SELECT)
+	else:
 		_change_state(BattleState.PLAYER_MENU)
 
 
 # Moves the target cursor by `delta` (-1 left, +1 right), wrapping
-# around and skipping dead enemies. If no living enemies remain
-# (shouldn't happen — would have triggered WIN), bails silently.
+# around. Valid targets depend on whether we're in attack mode
+# (enemies only) or item mode (enemies + the player).
 func _move_target(delta: int) -> void:
-	var living: Array[int] = []
-	for i in _enemies.size():
-		if (_enemies[i] as BattleEnemy).is_alive():
-			living.append(i)
-	if living.is_empty():
+	var targets: Array[int] = _valid_targets()
+	if targets.is_empty():
 		return
-	# Find current position in the living list (or pick first if cursor
-	# is on a dead enemy, which can happen mid-battle if a killed
-	# enemy was the previous target).
-	var pos: int = living.find(_target_index)
+	# Find current position in the valid list (or pick first if cursor
+	# is on a no-longer-valid target).
+	var pos: int = targets.find(_target_index)
 	if pos == -1:
 		pos = 0
-	pos = (pos + delta + living.size()) % living.size()
-	_set_target(living[pos])
+	pos = (pos + delta + targets.size()) % targets.size()
+	_set_target(targets[pos])
 
 
-# Updates which enemy shows the ▼ target indicator. Called whenever
-# the cursor moves and at the start of TARGET_SELECT.
+# Returns the list of valid target indices for the current TARGET_SELECT
+# context. Living enemies are always valid. The player is valid IFF
+# an item is pending (attacks can't target the self).
+func _valid_targets() -> Array[int]:
+	var targets: Array[int] = []
+	for i in _enemies.size():
+		if (_enemies[i] as BattleEnemy).is_alive():
+			targets.append(i)
+	if _pending_item != null:
+		targets.append(TARGET_INDEX_PLAYER)
+	return targets
+
+
+# Updates which target shows the ▼ indicator. `index` can be
+# TARGET_INDEX_PLAYER (-1) for the player, or 0..N-1 for an enemy.
+# Called whenever the cursor moves and at the start of TARGET_SELECT.
 func _set_target(index: int) -> void:
 	_target_index = index
 	for i in _enemies.size():
@@ -595,6 +774,11 @@ func _set_target(index: int) -> void:
 		# in _mark_enemy_defeated.
 		if be.sprite != null and be.is_alive():
 			be.sprite.modulate = TARGET_TINT if i == index else Color.WHITE
+	# Player-side indicator + tint.
+	if _player_target_indicator != null:
+		_player_target_indicator.visible = (index == TARGET_INDEX_PLAYER)
+	if player_sprite != null:
+		player_sprite.modulate = TARGET_TINT if index == TARGET_INDEX_PLAYER else Color.WHITE
 
 
 # Hides every target indicator and clears any sprite tint. Called
@@ -606,6 +790,100 @@ func _clear_target_indicators() -> void:
 			be.target_indicator.visible = false
 		if be.sprite != null and be.is_alive():
 			be.sprite.modulate = Color.WHITE
+	if _player_target_indicator != null:
+		_player_target_indicator.visible = false
+	if player_sprite != null:
+		player_sprite.modulate = Color.WHITE
+
+
+# Mouse hover on an enemy's clickable area. During TARGET_SELECT it
+# moves the cursor to that enemy (matches keyboard nav feel). No-op
+# outside TARGET_SELECT or on dead enemies — the area still exists
+# for them but their hover/click does nothing.
+func _on_enemy_hovered(be: BattleEnemy) -> void:
+	if current_state != BattleState.TARGET_SELECT:
+		return
+	if not be.is_alive():
+		return
+	var idx: int = _enemies.find(be)
+	if idx >= 0:
+		_set_target(idx)
+
+
+# Mouse input on an enemy's clickable area. Left-click during
+# TARGET_SELECT confirms the target — same code path as pressing
+# Enter. Other inputs (motion, right-click, etc.) get ignored.
+#
+# Signature: input_event fires with (viewport, event, shape_idx)
+# from the Area2D signal, plus the bound BattleEnemy at the end.
+func _on_enemy_input_event(_viewport: Node, event: InputEvent, _shape_idx: int, be: BattleEnemy) -> void:
+	if current_state != BattleState.TARGET_SELECT:
+		return
+	if not be.is_alive():
+		return
+	if not (event is InputEventMouseButton):
+		return
+	var mb: InputEventMouseButton = event
+	if not (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT):
+		return
+	var idx: int = _enemies.find(be)
+	if idx < 0:
+		return
+	# Update target first so any "current target" UI snaps to the
+	# clicked enemy before the attack/item animation starts.
+	_set_target(idx)
+	get_viewport().set_input_as_handled()
+	_confirm_target()
+
+
+# Mouse hover on the player's clickable area. Same role as the enemy
+# version but for self-targeting items. Only meaningful when an item
+# is pending — for regular attacks the player isn't a valid target.
+func _on_player_hovered() -> void:
+	if current_state != BattleState.TARGET_SELECT:
+		return
+	if _pending_item == null:
+		return
+	_set_target(TARGET_INDEX_PLAYER)
+
+
+# Mouse click on the player's clickable area. Confirms self-target
+# during item targeting; no-op outside that context.
+func _on_player_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
+	if current_state != BattleState.TARGET_SELECT:
+		return
+	if _pending_item == null:
+		return
+	if not (event is InputEventMouseButton):
+		return
+	var mb: InputEventMouseButton = event
+	if not (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT):
+		return
+	_set_target(TARGET_INDEX_PLAYER)
+	get_viewport().set_input_as_handled()
+	_confirm_target()
+
+
+# Called when battle_ui's item menu fires item_selected. Stores the
+# picked item as _pending_item and transitions to TARGET_SELECT so
+# the player can choose where to apply it.
+func _on_item_selected(item: Item) -> void:
+	if current_state != BattleState.ITEM_SELECT:
+		return
+	if item == null:
+		return
+	battle_ui.hide_item_menu()
+	_pending_item = item
+	_change_state(BattleState.TARGET_SELECT)
+
+
+# Called when battle_ui's item menu fires item_canceled. Returns to
+# the action menu without consuming the turn (status tick stuck).
+func _on_item_canceled() -> void:
+	if current_state != BattleState.ITEM_SELECT:
+		return
+	battle_ui.hide_item_menu()
+	_change_state(BattleState.PLAYER_MENU)
 
 
 # Central function for moving between battle phases.
@@ -620,6 +898,8 @@ func _change_state(new_state: BattleState) -> void:
 			_run_intro()
 		BattleState.PLAYER_MENU:
 			_run_player_menu()
+		BattleState.ITEM_SELECT:
+			_run_item_select()
 		BattleState.TARGET_SELECT:
 			_run_target_select()
 		BattleState.PLAYER_ATTACK:
@@ -636,22 +916,66 @@ func _change_state(new_state: BattleState) -> void:
 			_run_escape_outcome()
 
 
-# Entered after the player picks Attack. Auto-targets the first living
-# enemy (so the cursor never starts on a corpse) and shows the ▼
-# indicator. Input is handled via _handle_target_select_input above.
+# Entered after the player picks Attack OR picks an item. Default
+# cursor placement depends on context:
+#   - Attack (no pending item): first living enemy.
+#   - Item with offensive effect (DAMAGE_FIXED): first living enemy.
+#   - Item with beneficial effect (HEAL_*, CURE_STATUS): the player.
+# In all cases the player can override via arrow keys or mouse click.
+# Input is handled via _handle_target_select_input above.
 func _run_target_select() -> void:
-	# Find first living enemy; if none, that's a logic bug (we should
-	# have already transitioned to WIN).
-	var first_alive: int = -1
+	var default_idx: int
+	if _pending_item != null:
+		default_idx = _default_target_for_item(_pending_item)
+	else:
+		default_idx = _first_living_enemy_index()
+		if default_idx == -1:
+			# No living enemies — should already have transitioned to WIN.
+			_change_state(BattleState.WIN)
+			return
+	_set_target(default_idx)
+	battle_ui.set_message("Target?")
+	# Surface the on-screen Cancel button so mouse users don't have to
+	# reach for Esc. Hidden again in _confirm_target / _cancel_target.
+	battle_ui.show_target_cancel_button()
+
+
+# Returns the index of the first living enemy in _enemies, or -1 if
+# none are alive. Used both to seed TARGET_SELECT cursor and to find
+# the offensive-item default target.
+func _first_living_enemy_index() -> int:
 	for i in _enemies.size():
 		if (_enemies[i] as BattleEnemy).is_alive():
-			first_alive = i
-			break
-	if first_alive == -1:
-		_change_state(BattleState.WIN)
-		return
-	_set_target(first_alive)
-	battle_ui.set_message("Target?")
+			return i
+	return -1
+
+
+# Picks the default target index for a given item based on its
+# effect_kind. Heals/cures default to the player (TARGET_INDEX_PLAYER);
+# offensive items default to the first living enemy. Either default
+# can be overridden by the player before confirming.
+func _default_target_for_item(item: Item) -> int:
+	match item.effect_kind:
+		Item.EffectKind.DAMAGE_FIXED:
+			var enemy_idx: int = _first_living_enemy_index()
+			# Falls back to the player if all enemies are dead, which
+			# shouldn't happen here but keeps the cursor on a valid target.
+			return enemy_idx if enemy_idx != -1 else TARGET_INDEX_PLAYER
+		_:
+			return TARGET_INDEX_PLAYER
+
+
+# Builds and shows the item picker. Reads RPGState.inventory and
+# hands it to battle_ui to render. Cursor / confirm / cancel routes
+# through item_selected / item_canceled signals (see _on_item_selected
+# / _on_item_canceled handlers).
+func _run_item_select() -> void:
+	battle_ui.hide_menu()
+	battle_ui.show_item_menu(RPGState.inventory)
+	if RPGState.has_any_items():
+		battle_ui.set_message("Use which item?")
+	else:
+		battle_ui.set_message("No items.")
 
 
 # Shows the opening message, waits a moment, then moves to the player's turn.
@@ -705,35 +1029,46 @@ func _on_action_selected(action: String) -> void:
 		_change_state(BattleState.PLAYER_MENU)
 		return
 
-	# Hide the menu before the status tick so it isn't sitting visible
-	# alongside the poison damage popup / message. The downstream
-	# action handlers (_run_player_attack etc.) also call hide_menu
-	# but that's now a redundant no-op.
+	# Hide the menu before any subsequent UI (target picker, item
+	# picker, status tick popup) shows. The downstream action handlers
+	# also call hide_menu but that's now a redundant no-op.
 	battle_ui.hide_menu()
-
-	# Tick player statuses. If poison kills, the LOSE state takes over
-	# and the action below is never reached.
-	await _apply_status_tick("player")
-	if RPGState.hp <= 0:
-		_change_state(BattleState.LOSE)
-		return
 
 	match action:
 		"attack":
 			# Multi-enemy: pick a target before resolving the attack.
-			# With one living enemy, target select still runs but the
-			# cursor is locked to the only option — Enter immediately
-			# proceeds. Could shortcut here, but the consistency is
-			# worth a single extra keypress for solo fights.
+			# Status tick fires AFTER target is confirmed — that's the
+			# real "commit" point. Cancelling out of target select
+			# means you haven't actually taken your turn yet.
 			_change_state(BattleState.TARGET_SELECT)
-		"cast", "item":
-			# Both lead to the sub-menu state (currently just shows "Nothing here...")
+		"item":
+			# Show the inventory picker. _on_item_selected then routes
+			# to TARGET_SELECT; status tick fires after target confirm.
+			_change_state(BattleState.ITEM_SELECT)
+		"cast":
+			# Cast remains a stub (Spells Mod will replace this).
 			_change_state(BattleState.SUB_MENU)
 		"run":
-			# Run currently always succeeds. When the Run mod system lands
-			# this will gate on ModManager.is_active("run") and possibly
-			# fall back to "Can't escape!" without it.
+			# Run has no target step, so the commit point is right here.
+			# Tick before running away — escaping doesn't dodge poison.
+			await _tick_player_if_needed()
+			if RPGState.hp <= 0:
+				_change_state(BattleState.LOSE)
+				return
 			_change_state(BattleState.ESCAPE)
+
+
+# Fires the player's per-turn status tick, but only if it hasn't
+# already happened this turn. The flag resets in _run_enemy_turn
+# when a new player turn begins. Called from action commit points:
+#   - _confirm_target (after target is locked in for attack or item)
+#   - _on_action_selected on "run" (no target step, so commit happens here)
+# If poison kills the player, caller is expected to transition to LOSE.
+func _tick_player_if_needed() -> void:
+	if _player_ticked_this_turn:
+		return
+	await _apply_status_tick("player")
+	_player_ticked_this_turn = true
 
 
 # Resolves the player's basic attack against the currently-targeted
@@ -800,14 +1135,187 @@ func _all_enemies_defeated() -> bool:
 	return true
 
 
-# Visually marks an enemy as defeated: dim the sprite, hide the HP
-# bar widget. Stats stay on the BattleEnemy in case future "revive"
-# mechanics want them.
+# Visually marks an enemy as defeated by fading the sprite and HP bar
+# widget to transparent over DEATH_FADE_DURATION seconds, AFTER waiting
+# DEATH_FADE_DELAY seconds so the HP bar finishes draining to 0 first.
+# Fire-and-forget — the tween runs in parallel with the existing post-
+# hit read pause (1.0s). With the default 0.4 delay + 0.8 fade, the
+# tween finishes ~0.2s past the read pause but doesn't block the next
+# turn (the dead enemy is skipped regardless of fade state).
+# Stats stay on the BattleEnemy in case future "revive" mechanics want
+# them; only the visuals disappear.
 func _mark_enemy_defeated(be: BattleEnemy) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
 	if be.sprite != null:
-		be.sprite.modulate = Color(0.4, 0.4, 0.4, 0.4)
+		# set_delay holds the tween at its start value for that many
+		# seconds before beginning, giving the HP drain time to finish.
+		tween.tween_property(be.sprite, "modulate:a", 0.0, DEATH_FADE_DURATION) \
+			.set_delay(DEATH_FADE_DELAY) \
+			.set_trans(Tween.TRANS_QUAD) \
+			.set_ease(Tween.EASE_OUT)
 	if be.hp_bar_root != null:
-		be.hp_bar_root.visible = false
+		# modulate cascades to children (NameLabel, HPBar, HPText,
+		# StatusLabel, TargetIndicator), so fading the root fades the
+		# entire widget cluster in one tween. Same delay as the sprite
+		# so the two start fading together.
+		tween.tween_property(be.hp_bar_root, "modulate:a", 0.0, DEATH_FADE_DURATION) \
+			.set_delay(DEATH_FADE_DELAY) \
+			.set_trans(Tween.TRANS_QUAD) \
+			.set_ease(Tween.EASE_OUT)
+
+
+# Applies a picked Item's effect to the target identified by
+# target_idx (TARGET_INDEX_PLAYER for the player, 0..N-1 for an
+# enemy). Decrements inventory by 1, plays an appropriate popup,
+# updates HP/MP bars, and transitions to ENEMY_TURN (or WIN/LOSE if
+# the effect ended the fight).
+#
+# Items don't use the damage formula — DAMAGE_FIXED applies the flat
+# `amount` value directly, no crit, no random roll. That's a design
+# choice for clarity: items are predictable resources you can plan
+# around, attacks are variable.
+func _use_item(item: Item, target_idx: int) -> void:
+	if item == null:
+		_change_state(BattleState.ENEMY_TURN)
+		return
+
+	var msg: String = ""
+	var target_is_player: bool = (target_idx == TARGET_INDEX_PLAYER)
+	var target_enemy: BattleEnemy = null
+	if not target_is_player:
+		if target_idx < 0 or target_idx >= _enemies.size():
+			# Target somehow invalid — bail to enemy turn so we don't soft-lock.
+			RPGState.remove_from_inventory(item, 1)
+			_change_state(BattleState.ENEMY_TURN)
+			return
+		target_enemy = _enemies[target_idx]
+
+	match item.effect_kind:
+		Item.EffectKind.HEAL_HP:
+			msg = await _apply_item_heal_hp(item, target_is_player, target_enemy)
+		Item.EffectKind.HEAL_MP:
+			msg = _apply_item_heal_mp(item, target_is_player)
+		Item.EffectKind.CURE_STATUS:
+			msg = _apply_item_cure_status(item, target_is_player, target_enemy)
+		Item.EffectKind.DAMAGE_FIXED:
+			msg = await _apply_item_damage(item, target_is_player, target_enemy)
+
+	# Consume one of the item.
+	RPGState.remove_from_inventory(item, 1)
+
+	battle_ui.set_message(msg)
+	await get_tree().create_timer(1.2).timeout
+
+	# Item use can end the fight in either direction.
+	if _all_enemies_defeated():
+		_change_state(BattleState.WIN)
+	elif RPGState.hp <= 0:
+		_change_state(BattleState.LOSE)
+	else:
+		_change_state(BattleState.ENEMY_TURN)
+
+
+# Heal HP effect handler. Returns the message to display. Heals are
+# capped at the target's max HP — overheal is wasted (consistent
+# with most JRPGs). Async because we wait briefly so the HP bar drain
+# animation plays before the message text is set.
+func _apply_item_heal_hp(item: Item, target_is_player: bool, target_enemy: BattleEnemy) -> String:
+	if target_is_player:
+		var max_hp: int = RPGState.get_effective_max_hp()
+		var before: int = RPGState.hp
+		RPGState.hp = mini(RPGState.hp + item.amount, max_hp)
+		var actual: int = RPGState.hp - before
+		RPGState.stats_changed.emit()
+		battle_ui.update_player_hp(RPGState.hp)
+		DamagePopup.spawn_status(
+			self, player_sprite.global_position + POPUP_OFFSET,
+			actual, HEAL_HP_POPUP_COLOR)
+		return "%s used %s and recovered %d HP!" % [
+			RPGState.character_name, item.item_name, actual]
+	# Heal on enemy.
+	var before: int = target_enemy.hp
+	target_enemy.hp = mini(target_enemy.hp + item.amount, target_enemy.max_hp)
+	var actual: int = target_enemy.hp - before
+	_animate_enemy_hp(target_enemy, target_enemy.hp)
+	DamagePopup.spawn_status(
+		self, target_enemy.sprite.global_position + POPUP_OFFSET,
+		actual, HEAL_HP_POPUP_COLOR)
+	return "%s used %s on %s. Recovered %d HP." % [
+		RPGState.character_name, item.item_name, target_enemy.name, actual]
+
+
+# Heal MP effect handler. Currently only meaningful on the player
+# (enemies don't have MP). Returns the message.
+func _apply_item_heal_mp(item: Item, target_is_player: bool) -> String:
+	if not target_is_player:
+		return "%s used %s — but it had no effect." % [
+			RPGState.character_name, item.item_name]
+	var max_mp: int = RPGState.get_effective_max_mp()
+	var before: int = RPGState.mp
+	RPGState.mp = mini(RPGState.mp + item.amount, max_mp)
+	var actual: int = RPGState.mp - before
+	RPGState.stats_changed.emit()
+	DamagePopup.spawn_status(
+		self, player_sprite.global_position + POPUP_OFFSET,
+		actual, HEAL_MP_POPUP_COLOR)
+	return "%s used %s and recovered %d MP!" % [
+		RPGState.character_name, item.item_name, actual]
+
+
+# Cure status effect handler. Removes `status_name` from the target's
+# status list if present. Doesn't go through the immunity check —
+# items that cure a status work on any combatant that has it.
+func _apply_item_cure_status(item: Item, target_is_player: bool, target_enemy: BattleEnemy) -> String:
+	if item.status_name == "":
+		return "%s used %s — but it had no effect." % [
+			RPGState.character_name, item.item_name]
+	if target_is_player:
+		if RPGState.has_status(item.status_name):
+			RPGState.remove_status(item.status_name)
+			return "%s used %s. %s cured!" % [
+				RPGState.character_name, item.item_name, item.status_name]
+		return "%s used %s — but it had no effect." % [
+			RPGState.character_name, item.item_name]
+	# Cure on enemy.
+	if target_enemy.statuses.has(item.status_name):
+		target_enemy.statuses.erase(item.status_name)
+		_refresh_enemy_status_label(target_enemy)
+		return "%s used %s on %s. %s cured!" % [
+			RPGState.character_name, item.item_name, target_enemy.name, item.status_name]
+	return "%s used %s on %s — no effect." % [
+		RPGState.character_name, item.item_name, target_enemy.name]
+
+
+# Fixed damage effect handler. No formula, no crit, no random roll —
+# just deals `item.amount` damage to the target. Floors at 1 (can't
+# heal something with a damage item). Triggers the enemy hit effect
+# + camera shake so the visual impact roughly matches a normal hit.
+func _apply_item_damage(item: Item, target_is_player: bool, target_enemy: BattleEnemy) -> String:
+	var damage: int = maxi(1, item.amount)
+	if target_is_player:
+		RPGState.hp = maxi(RPGState.hp - damage, 0)
+		RPGState.stats_changed.emit()
+		battle_ui.update_player_hp(RPGState.hp)
+		DamagePopup.spawn_status(
+			self, player_sprite.global_position + POPUP_OFFSET,
+			damage, ITEM_DAMAGE_POPUP_COLOR)
+		_hit_effect(player_sprite)
+		_camera_shake(CAM_SHAKE_INTENSITY_NORMAL, CAM_SHAKE_DURATION)
+		return "%s used %s on themselves?! %d damage." % [
+			RPGState.character_name, item.item_name, damage]
+	# Damage on enemy.
+	target_enemy.hp = maxi(target_enemy.hp - damage, 0)
+	_animate_enemy_hp(target_enemy, target_enemy.hp)
+	DamagePopup.spawn_status(
+		self, target_enemy.sprite.global_position + POPUP_OFFSET,
+		damage, ITEM_DAMAGE_POPUP_COLOR)
+	_hit_effect(target_enemy.sprite)
+	_camera_shake(CAM_SHAKE_INTENSITY_NORMAL, CAM_SHAKE_DURATION)
+	if target_enemy.hp <= 0:
+		_mark_enemy_defeated(target_enemy)
+	return "%s used %s on %s! %d damage." % [
+		RPGState.character_name, item.item_name, target_enemy.name, damage]
 
 
 # Each living enemy takes a turn in left-to-right order. Within a single
@@ -833,6 +1341,9 @@ func _run_enemy_turn() -> void:
 	if _all_enemies_defeated():
 		_change_state(BattleState.WIN)
 	else:
+		# New player turn begins — reset the per-turn tick flag so
+		# their next action triggers a fresh status tick.
+		_player_ticked_this_turn = false
 		_change_state(BattleState.PLAYER_MENU)
 
 

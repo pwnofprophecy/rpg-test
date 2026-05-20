@@ -124,6 +124,13 @@ var sandbox_selected_enemies: Array = [null, null, null, null]
 # subsequent Start Battle presses.
 var pending_battle_enemy_statuses: Array[String] = []
 
+# Sandbox cheat: when true, the combat sandbox refills the player's
+# inventory to 99 of each item on every sandbox load. Defaults true
+# so testing items doesn't require manually refilling between battles.
+# Toggled by the "Give 99 of each item" CheckBox in the Inventory
+# section.
+var sandbox_max_items: bool = true
+
 
 # --- Progression Flags (stubs for future phases) ---
 

@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="Item" format=3]
+
+[ext_resource type="Script" path="res://resources/item.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+item_name = "POTION"
+description = "A small flask of red liquid. Restores 20 HP."
+effect_kind = 0
+amount = 20

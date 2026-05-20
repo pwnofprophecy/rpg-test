@@ -79,6 +79,9 @@ const _ENEMIES_FOLDER: String = "res://resources/enemies/"
 # as enemies — drop a .tres in here and it appears in the slot
 # dropdowns next time the sandbox loads.
 const _EQUIPMENT_FOLDER: String = "res://resources/equipment/"
+# Folder we scan for item templates. Drop a .tres in here and it
+# appears in the sandbox's inventory editor next time it loads.
+const _ITEMS_FOLDER: String = "res://resources/items/"
 
 # --- Node references ---
 # Looked up by name (recursive search) rather than absolute path so the
@@ -137,6 +140,28 @@ var _player_status_checkboxes: Dictionary = {}
 # out and uncheck the boxes).
 var _enemy_status_checkboxes: Dictionary = {}
 
+# Map of Item resource → SpinBox driving its inventory count. Used to
+# resync the SpinBoxes when RPGState.inventory changes externally
+# (e.g. a battle consumed a potion).
+var _inventory_spinboxes: Dictionary = {}
+
+# Cached list of every Item Resource discovered in res://resources/items/.
+# Scanned once in _ready before the inventory section is populated so
+# the "max items" cheat can pre-fill counts BEFORE the SpinBoxes are
+# built (otherwise the SpinBox initial values wouldn't match the
+# refilled inventory).
+var _items_cache: Array[Item] = []
+
+# Reference to the "Give 99 of each item" CheckBox so we can resync
+# its checked state if anything external mutates the cheat flag (none
+# does today, but mirrors the pattern used for the enemy/status checkboxes).
+var _max_items_checkbox: CheckBox = null
+
+# The count given to each item when the max-items cheat is on. 99 is
+# both visually unmistakable as a "cheat value" and matches typical
+# JRPG inventory caps.
+const MAX_ITEMS_VALUE: int = 99
+
 # Per-slot widget references for the multi-enemy picker. Each entry:
 #   { "dropdown": OptionButton, "stats_label": Label }
 # Indexed by slot (0..ENEMY_SLOT_COUNT-1).
@@ -144,6 +169,19 @@ var _enemy_slots: Array = []
 
 
 func _ready() -> void:
+	# Scan the items folder once up front so the max-items cheat below
+	# can pre-fill RPGState.inventory BEFORE the inventory SpinBoxes
+	# are built (otherwise they'd snapshot stale counts and a manual
+	# refresh would be needed).
+	_items_cache = _scan_items_folder()
+
+	# Apply the sandbox max-items cheat if it's enabled (default true).
+	# Refills the player's inventory to MAX_ITEMS_VALUE of each known
+	# item every sandbox load — meaning even after a battle that
+	# consumed items, returning to the sandbox restocks automatically.
+	if GameManager.sandbox_max_items:
+		_apply_max_items_setting()
+
 	_populate_player_stats()
 	# Hide the .tscn's legacy single-enemy widgets — we render four
 	# multi-enemy slots in their place via _populate_enemy_slots below.
@@ -223,6 +261,11 @@ func _populate_player_stats() -> void:
 	# all script-generated, driven by _KNOWN_STATUSES.
 	_populate_player_status_section()
 
+	# Inventory editor below status section. One SpinBox per item .tres
+	# discovered in res://resources/items/. Setting a count writes
+	# directly to RPGState.inventory.
+	_populate_inventory_section()
+
 
 func _refresh_stat_editors() -> void:
 	# Re-pull values from RPGState into each SpinBox. Guarded against the
@@ -243,6 +286,10 @@ func _refresh_stat_editors() -> void:
 	# from outside the sandbox (e.g. a future battle that applies
 	# poison) update the visible checkbox state.
 	_refresh_player_status_checkboxes()
+
+	# Inventory SpinBoxes resync — covers battles consuming items
+	# and Reset to Defaults clearing the inventory.
+	_refresh_inventory_spinboxes()
 
 	# Effective-stat labels refresh next, since they read both the
 	# (possibly just-resync'd) base stats AND the (possibly just-
@@ -382,6 +429,120 @@ func _populate_player_status_section() -> void:
 				RPGState.remove_status(captured))
 		_player_status_checkboxes[status_name] = cb
 		player_stats_container.add_child(cb)
+
+
+# Inventory section under Statuses. Starts with the "max items" cheat
+# toggle, then one row per item .tres discovered in
+# res://resources/items/, each with a SpinBox for the count. Writes
+# directly to RPGState.set_inventory_count, which fires stats_changed
+# so the battle item menu (when open) reflects the change.
+func _populate_inventory_section() -> void:
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 8)
+	player_stats_container.add_child(spacer)
+
+	var header := Label.new()
+	header.text = "Inventory"
+	header.add_theme_font_size_override("font_size", 22)
+	player_stats_container.add_child(header)
+
+	# "Give 99 of each item" cheat toggle. Defaults to whatever
+	# GameManager.sandbox_max_items says (true on first boot). Toggling
+	# sets every known item to MAX_ITEMS_VALUE or to 0 — SpinBoxes
+	# resync via stats_changed in the same frame.
+	_max_items_checkbox = CheckBox.new()
+	_max_items_checkbox.text = "Give 99 of each item"
+	_max_items_checkbox.button_pressed = GameManager.sandbox_max_items
+	_max_items_checkbox.toggled.connect(func(pressed: bool) -> void:
+		GameManager.sandbox_max_items = pressed
+		_apply_max_items_setting())
+	player_stats_container.add_child(_max_items_checkbox)
+
+	if _items_cache.is_empty():
+		var note := Label.new()
+		note.text = "  (no items in res://resources/items/)"
+		note.add_theme_font_size_override("font_size", 14)
+		player_stats_container.add_child(note)
+		return
+
+	for item in _items_cache:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+
+		var name_label := Label.new()
+		name_label.text = item.item_name
+		name_label.custom_minimum_size = Vector2(120, 0)
+		row.add_child(name_label)
+
+		var spin := SpinBox.new()
+		spin.min_value = 0
+		spin.max_value = 99
+		spin.step = 1
+		spin.value = RPGState.get_inventory_count(item)
+		spin.custom_minimum_size = Vector2(80, 0)
+		var captured: Item = item
+		spin.value_changed.connect(func(v: float) -> void:
+			RPGState.set_inventory_count(captured, int(v)))
+		row.add_child(spin)
+
+		_inventory_spinboxes[item] = spin
+		player_stats_container.add_child(row)
+
+
+# Sets every known item's inventory count according to the current
+# sandbox_max_items flag. Called on sandbox _ready (if the flag is
+# on) and whenever the user toggles the CheckBox.
+#
+# ON  → set every item to MAX_ITEMS_VALUE (99)
+# OFF → set every item to 0
+#
+# RPGState.set_inventory_count emits stats_changed per call, which
+# triggers _refresh_inventory_spinboxes to update the SpinBox values
+# automatically. No manual UI refresh needed here.
+func _apply_max_items_setting() -> void:
+	var value: int = MAX_ITEMS_VALUE if GameManager.sandbox_max_items else 0
+	for item in _items_cache:
+		RPGState.set_inventory_count(item, value)
+
+
+# Scans res://resources/items/ for .tres files, loads each as Item.
+# Sorts alphabetically by display name for stable dropdown order.
+func _scan_items_folder() -> Array[Item]:
+	var found: Array[Item] = []
+	var dir: DirAccess = DirAccess.open(_ITEMS_FOLDER)
+	if dir == null:
+		push_warning("combat_sandbox: cannot open %s" % _ITEMS_FOLDER)
+		return found
+
+	dir.list_dir_begin()
+	var file_name: String = dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".tres"):
+			var path: String = _ITEMS_FOLDER + file_name
+			var res: Resource = load(path)
+			var item: Item = res as Item
+			if item != null:
+				found.append(item)
+			else:
+				push_warning("combat_sandbox: %s isn't an Item" % path)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+
+	found.sort_custom(func(a: Item, b: Item) -> bool:
+		return a.item_name < b.item_name)
+	return found
+
+
+# Re-syncs each inventory SpinBox to RPGState.get_inventory_count() —
+# used when battle.gd consumes an item or reset_from_template clears
+# the inventory. set_value_no_signal avoids the value_changed signal
+# firing in a loop.
+func _refresh_inventory_spinboxes() -> void:
+	for item_key in _inventory_spinboxes:
+		var spin: SpinBox = _inventory_spinboxes[item_key]
+		var current: int = RPGState.get_inventory_count(item_key)
+		if int(spin.value) != current:
+			spin.set_value_no_signal(current)
 
 
 # Re-syncs each status checkbox to RPGState.has_status() — used when
@@ -858,6 +1019,11 @@ func _on_reset_pressed() -> void:
 	# off the stats_changed signal RPGState emits, so the SpinBoxes
 	# update without us touching them directly.
 	RPGState.reset_from_template()
+	# Reset clears inventory along with name/stats/equipment — but if
+	# the max-items cheat is on, we want to immediately restock so the
+	# post-Reset state is "ready to test", not "empty-handed".
+	if GameManager.sandbox_max_items:
+		_apply_max_items_setting()
 
 
 func _on_exit_pressed() -> void:

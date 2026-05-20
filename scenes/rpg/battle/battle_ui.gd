@@ -13,6 +13,20 @@ extends CanvasLayer
 # tightly coupled together.
 signal action_selected(action: String)
 
+# Emitted when the player picks an item from the item menu. The Item
+# resource is passed so battle.gd knows what to apply. battle.gd then
+# routes through target selection before actually using it.
+signal item_selected(item: Item)
+
+# Emitted when the player presses Esc / right-clicks while the item
+# menu is open. battle.gd uses this to return to the action menu.
+signal item_canceled
+
+# Emitted when the player clicks the on-screen Cancel button during
+# target selection. Keyboard Esc is handled by battle.gd directly;
+# this signal is the mouse-equivalent path.
+signal target_cancel_clicked
+
 # --- Node References ---
 # "@onready" tells Godot: once the scene is loaded, find the node at this
 # path and store a reference to it in this variable.
@@ -37,6 +51,26 @@ signal action_selected(action: String)
 # than in the .tscn so this script owns the lifecycle.
 var player_status_label: Label = null
 var enemy_status_label: Label = null
+
+# --- Item menu state ---
+# The item menu lives in a separately-built PanelContainer that we
+# create on demand. show_item_menu(inventory) builds the labels and
+# enables input; hide_item_menu() tears it down. While item_menu_active
+# is true, _unhandled_input routes arrow keys / Enter / Esc to the
+# item menu instead of the regular action flow.
+var item_menu_panel: PanelContainer = null
+var item_menu_vbox: VBoxContainer = null
+var item_menu_labels: Array[Label] = []
+var item_menu_items: Array = []  # parallel to item_menu_labels — Array[Item]
+var item_menu_counts: Array[int] = []  # parallel — quantity for each item
+var item_menu_active: bool = false
+var item_menu_cursor: int = 0
+
+# Cancel button shown during target selection. Mouse equivalent of
+# pressing Esc. battle.gd toggles visibility on TARGET_SELECT entry /
+# exit; clicking it fires target_cancel_clicked which battle.gd routes
+# to _cancel_target.
+var target_cancel_button: Button = null
 
 # An array holding references to the four menu option labels,
 # in the order they appear in the 2x2 grid:
@@ -185,8 +219,34 @@ func _on_menu_label_input(event: InputEvent, idx: int) -> void:
 # but only if no other node has already "handled" it.
 # We use this to drive menu navigation without needing a polling loop.
 func _unhandled_input(event: InputEvent) -> void:
-	# If we're inside a sub-menu (Cast or Item), any confirm/cancel key
-	# OR a left-click anywhere sends the player back to the main menu.
+	# If we're inside the item menu, route keys there: Up/Down navigate,
+	# Enter confirms, Esc/Backspace cancels (item_canceled signal).
+	# Navigation now includes the Cancel row at the bottom, so the
+	# modulo is item_menu_labels.size() (which is at least 1 — the
+	# Cancel row is always present).
+	if item_menu_active:
+		var nav_count: int = item_menu_labels.size()
+		if event.is_action_pressed("ui_up") and nav_count > 0:
+			item_menu_cursor = (item_menu_cursor - 1 + nav_count) % nav_count
+			_update_item_menu_cursor()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_down") and nav_count > 0:
+			item_menu_cursor = (item_menu_cursor + 1) % nav_count
+			_update_item_menu_cursor()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_accept"):
+			_confirm_item_selection()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_cancel"):
+			# Cancel — back to action menu. battle.gd is the one that
+			# actually changes state, so just emit and let it route.
+			item_canceled.emit()
+			get_viewport().set_input_as_handled()
+		return
+
+	# If we're inside a sub-menu (Cast — Item now has its own picker
+	# handled above), any confirm/cancel key OR a left-click anywhere
+	# sends the player back to the main menu.
 	if sub_menu_active:
 		var dismiss := (event.is_action_pressed("ui_accept")
 			or event.is_action_pressed("ui_cancel")
@@ -407,3 +467,216 @@ static func _is_left_click(event: InputEvent) -> bool:
 		return false
 	var mb: InputEventMouseButton = event
 	return mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT
+
+
+# --- Item menu ---
+# Builds a vertical list of the player's inventory items as a popup
+# anchored where the action menu sits. Each row reads "ITEM_NAME × N".
+# Arrow keys navigate, Enter / left-click confirm, Esc / right-click
+# cancel. Mouse hover moves the cursor (mirrors the action menu UX).
+#
+# `inventory_dict` is RPGState.inventory — a Dictionary keyed by Item
+# Resource with int quantity values. Empty inventory shows a "No
+# items." line and only Esc dismisses.
+func show_item_menu(inventory_dict: Dictionary) -> void:
+	_ensure_item_menu_built()
+
+	# Tear down any previous list entries so re-opening the menu shows
+	# fresh quantities (e.g. after one Potion was just used).
+	for lbl in item_menu_labels:
+		lbl.queue_free()
+	item_menu_labels.clear()
+	item_menu_items.clear()
+	item_menu_counts.clear()
+
+	# One row per item the player owns. Empty inventory just skips this
+	# block and goes straight to the Cancel row — the redundant
+	# "No items." placeholder is left to the text box message (set by
+	# battle.gd::_run_item_select).
+	for item_key in inventory_dict.keys():
+		var item: Item = item_key as Item
+		if item == null:
+			continue
+		var qty: int = int(inventory_dict[item_key])
+		var lbl := _make_item_menu_label(item, qty)
+		item_menu_vbox.add_child(lbl)
+		item_menu_labels.append(lbl)
+		item_menu_items.append(item)
+		item_menu_counts.append(qty)
+		var idx: int = item_menu_labels.size() - 1
+		lbl.mouse_entered.connect(_on_item_menu_label_hovered.bind(idx))
+		lbl.gui_input.connect(_on_item_menu_label_input.bind(idx))
+
+	# Cancel row always sits at the bottom. Its index in item_menu_labels
+	# is item_menu_items.size() — that's the boundary _confirm_item_selection
+	# and the hover/click handlers use to decide "is the cursor on Cancel?".
+	var cancel_lbl := Label.new()
+	cancel_lbl.text = "  Cancel"
+	cancel_lbl.add_theme_font_size_override("font_size", 18)
+	cancel_lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+	item_menu_vbox.add_child(cancel_lbl)
+	item_menu_labels.append(cancel_lbl)
+	var cancel_idx: int = item_menu_labels.size() - 1
+	cancel_lbl.mouse_entered.connect(_on_item_menu_label_hovered.bind(cancel_idx))
+	cancel_lbl.gui_input.connect(_on_item_menu_label_input.bind(cancel_idx))
+
+	# Cursor starts on the first item, or on Cancel if inventory is
+	# empty. Either way that's index 0 in the labels list.
+	item_menu_cursor = 0
+	item_menu_active = true
+	item_menu_panel.visible = true
+	_update_item_menu_cursor()
+
+
+# Hides the item menu and disables input routing. battle.gd calls this
+# when transitioning out of ITEM_SELECT (either confirm or cancel).
+func hide_item_menu() -> void:
+	item_menu_active = false
+	if item_menu_panel != null:
+		item_menu_panel.visible = false
+
+
+# Lazily creates the item menu's container nodes on first use. Sits
+# behind the regular action menu position-wise — anchored to the
+# bottom-right of the screen.
+func _ensure_item_menu_built() -> void:
+	if item_menu_panel != null:
+		return
+	item_menu_panel = PanelContainer.new()
+	item_menu_panel.anchor_left = 1.0
+	item_menu_panel.anchor_top = 1.0
+	item_menu_panel.anchor_right = 1.0
+	item_menu_panel.anchor_bottom = 1.0
+	item_menu_panel.offset_left = -300.0
+	item_menu_panel.offset_top = -260.0
+	item_menu_panel.offset_right = -20.0
+	item_menu_panel.offset_bottom = -180.0
+	item_menu_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	item_menu_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	# IGNORE on the panel itself so a click between item labels doesn't
+	# get consumed by the panel — the labels themselves have STOP for
+	# their own click handling.
+	item_menu_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(item_menu_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	item_menu_panel.add_child(margin)
+
+	item_menu_vbox = VBoxContainer.new()
+	item_menu_vbox.add_theme_constant_override("separation", 4)
+	item_menu_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(item_menu_vbox)
+
+	item_menu_panel.visible = false
+
+
+# Builds one row Label for an inventory entry. Sets up mouse_filter
+# STOP so hover/click signals fire (mirroring the action menu labels).
+func _make_item_menu_label(item: Item, qty: int) -> Label:
+	var lbl := Label.new()
+	lbl.text = "  %s × %d" % [item.item_name, qty]
+	lbl.add_theme_font_size_override("font_size", 18)
+	lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+	return lbl
+
+
+# Redraws cursor indicator (">") on the highlighted row. Item rows
+# show "Name × N"; the Cancel row at the bottom shows "Cancel". Both
+# get the same prefix treatment for visual consistency.
+func _update_item_menu_cursor() -> void:
+	for i in item_menu_labels.size():
+		var lbl: Label = item_menu_labels[i]
+		var prefix: String = "> " if i == item_menu_cursor else "  "
+		if i < item_menu_items.size():
+			# Item row.
+			var item: Item = item_menu_items[i]
+			var qty: int = item_menu_counts[i]
+			lbl.text = "%s%s × %d" % [prefix, item.item_name, qty]
+		else:
+			# Cancel row at the bottom.
+			lbl.text = "%sCancel" % prefix
+
+
+func _on_item_menu_label_hovered(idx: int) -> void:
+	if not item_menu_active:
+		return
+	# Cancel row's index is item_menu_items.size(), so labels.size()
+	# is the upper bound for hover.
+	if idx < 0 or idx >= item_menu_labels.size():
+		return
+	item_menu_cursor = idx
+	_update_item_menu_cursor()
+
+
+func _on_item_menu_label_input(event: InputEvent, idx: int) -> void:
+	if not item_menu_active:
+		return
+	if not _is_left_click(event):
+		return
+	if idx < 0 or idx >= item_menu_labels.size():
+		return
+	item_menu_cursor = idx
+	_confirm_item_selection()
+	get_viewport().set_input_as_handled()
+
+
+# Fires the appropriate signal based on where the cursor sits. Item
+# rows (cursor < items.size()) emit item_selected with the resource;
+# the Cancel row at the bottom (cursor == items.size()) emits
+# item_canceled — same code path as pressing Esc.
+func _confirm_item_selection() -> void:
+	if item_menu_cursor < 0 or item_menu_cursor >= item_menu_labels.size():
+		return
+	if item_menu_cursor < item_menu_items.size():
+		# Item row.
+		var picked: Item = item_menu_items[item_menu_cursor]
+		item_selected.emit(picked)
+	else:
+		# Cancel row.
+		item_canceled.emit()
+
+
+# --- Target cancel button ---
+# Shown while battle.gd is in TARGET_SELECT so mouse users can click
+# Cancel rather than reaching for Esc. The button is created lazily
+# on first show and reused after that.
+
+func show_target_cancel_button() -> void:
+	_ensure_target_cancel_button_built()
+	target_cancel_button.visible = true
+
+
+func hide_target_cancel_button() -> void:
+	if target_cancel_button != null:
+		target_cancel_button.visible = false
+
+
+# Builds the Cancel button on first use. Anchored to the bottom-right
+# of the screen, positioned roughly in the same area as the action
+# menu (which is hidden during target select, so the area is free).
+func _ensure_target_cancel_button_built() -> void:
+	if target_cancel_button != null:
+		return
+	target_cancel_button = Button.new()
+	target_cancel_button.text = "Cancel"
+	target_cancel_button.anchor_left = 1.0
+	target_cancel_button.anchor_top = 1.0
+	target_cancel_button.anchor_right = 1.0
+	target_cancel_button.anchor_bottom = 1.0
+	# 120x44 button, ~30px above the bottom edge and 20px from the right.
+	target_cancel_button.offset_left = -140.0
+	target_cancel_button.offset_top = -100.0
+	target_cancel_button.offset_right = -20.0
+	target_cancel_button.offset_bottom = -56.0
+	target_cancel_button.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	target_cancel_button.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	target_cancel_button.add_theme_font_size_override("font_size", 20)
+	target_cancel_button.visible = false
+	target_cancel_button.pressed.connect(func() -> void:
+		target_cancel_clicked.emit())
+	add_child(target_cancel_button)

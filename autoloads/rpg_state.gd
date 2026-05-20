@@ -71,6 +71,13 @@ var equipped_weapon: Equipment = null
 var equipped_armor: Equipment = null
 var equipped_accessory: Equipment = null
 
+# --- Inventory ---
+# Map of Item Resource → int quantity. Entries with quantity 0 are
+# erased entirely (so has_any_items() can use is_empty()). Mutate via
+# add_to_inventory() / remove_from_inventory() so the stats_changed
+# signal fires and the sandbox / battle item menu refresh.
+var inventory: Dictionary = {}
+
 # Emitted whenever any stat or status effect changes. UI (HUD, battle menus)
 # can connect and refresh without polling.
 signal stats_changed
@@ -115,6 +122,8 @@ func _seed_from_template(include_name: bool) -> void:
 		equipped_weapon = null
 		equipped_armor = null
 		equipped_accessory = null
+		# Same logic for inventory — a "new game" starts empty-handed.
+		inventory.clear()
 	max_hp = t.max_hp
 	hp = t.max_hp
 	max_mp = t.max_mp
@@ -296,3 +305,54 @@ func _purge_immunized_statuses() -> void:
 	for status in immunities:
 		if status_effects.has(status):
 			status_effects.erase(status)
+
+
+# --- Inventory helpers ---
+# All mutations route through these so stats_changed fires once per
+# change, letting the sandbox SpinBoxes and the battle item menu
+# refresh automatically.
+
+func add_to_inventory(item: Item, quantity: int = 1) -> void:
+	if item == null or quantity <= 0:
+		return
+	inventory[item] = int(inventory.get(item, 0)) + quantity
+	stats_changed.emit()
+
+
+# Removes `quantity` of `item` from the inventory. If the resulting
+# count would be 0 or less, erases the entry entirely (keeps the
+# Dictionary "tidy" — only items the player actually owns appear).
+func remove_from_inventory(item: Item, quantity: int = 1) -> void:
+	if item == null or quantity <= 0 or not inventory.has(item):
+		return
+	var new_count: int = int(inventory[item]) - quantity
+	if new_count <= 0:
+		inventory.erase(item)
+	else:
+		inventory[item] = new_count
+	stats_changed.emit()
+
+
+# Sets the count for an item directly, bypassing the
+# additive/subtractive helpers. Useful for the sandbox SpinBox
+# (set count = 5) and for save/load restoration. Count of 0
+# erases the entry.
+func set_inventory_count(item: Item, count: int) -> void:
+	if item == null:
+		return
+	if count <= 0:
+		inventory.erase(item)
+	else:
+		inventory[item] = count
+	stats_changed.emit()
+
+
+func get_inventory_count(item: Item) -> int:
+	return int(inventory.get(item, 0))
+
+
+# True when the player owns at least one of any item. Used by the
+# battle item menu to decide whether to show "No items" placeholder
+# text or a real list.
+func has_any_items() -> bool:
+	return not inventory.is_empty()

@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="Item" format=3]
+
+[ext_resource type="Script" path="res://resources/item.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+item_name = "BOMB"
+description = "Crude explosive. Deals 15 flat damage."
+effect_kind = 3
+amount = 15

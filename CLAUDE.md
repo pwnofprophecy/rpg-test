@@ -230,6 +230,43 @@ The status display in battle is a small purple `[Status1, Status2]` label — un
 
 The combat sandbox auto-bounces a status checkbox back to false when an immunity blocks the toggle (player or enemy side), and filters out incompatible statuses when switching enemies in the dropdown — so you always see what's actually going to apply.
 
+## Item System
+Items are consumable resources the Hero carries in inventory. Each item is an `Item` Resource `.tres` file in `res://resources/items/`. The sandbox auto-discovers them like enemies and equipment.
+
+**`Item` Resource shape** (`resources/item.gd`):
+- `item_name`, `description`
+- `effect_kind: EffectKind` enum (HEAL_HP / HEAL_MP / CURE_STATUS / DAMAGE_FIXED)
+- `amount: int` — used by HEAL_HP, HEAL_MP, DAMAGE_FIXED
+- `status_name: String` — used by CURE_STATUS
+
+**No target field on the Resource.** Every item goes through target selection, and the *default* cursor placement is inferred from `effect_kind`:
+- HEAL_*, CURE_STATUS → defaults to the player
+- DAMAGE_FIXED → defaults to the first living enemy
+
+The player can override the default before confirming, so beneficial items can be aimed at enemies and vice versa (future-proofing for mechanics like "cure the enemy's Berserk to weaken them"). Currently both directions just resolve mechanically — the AI doesn't know to refuse a heal.
+
+**Inventory on `RPGState`**:
+- `inventory: Dictionary` — keyed by Item Resource, value = int quantity
+- Mutate via `add_to_inventory(item, qty)`, `remove_from_inventory(item, qty)`, `set_inventory_count(item, count)` (set 0 to erase the entry)
+- Read with `get_inventory_count(item)` and `has_any_items()` for "is empty?" checks
+- Reset to Defaults clears inventory along with name/stats/equipment
+
+**Battle flow when player picks Item**:
+1. `_on_action_selected("item")` → status tick (once per turn) → `ITEM_SELECT` state
+2. `battle_ui.show_item_menu(RPGState.inventory)` renders a list with current counts; mouse hover / click and arrow-key / Enter both work
+3. Player picks an item → `_pending_item` is stashed → `TARGET_SELECT` (cursor defaults per effect_kind)
+4. Player confirms target → `_use_item(item, target_idx)` runs the effect, decrements inventory, plays popup + drain, transitions to ENEMY_TURN
+
+**Target index encoding**: `_target_index = -1` (the constant `TARGET_INDEX_PLAYER`) means the player, `0..N-1` means `_enemies[i]`. `_valid_targets()` returns living enemies, plus the player when an item is pending. Regular attacks (no pending item) exclude the player from the cycle.
+
+**Cancel routing**: cancelling TARGET_SELECT during item targeting returns to ITEM_SELECT (pick a different item) rather than all the way back to PLAYER_MENU. Cancelling ITEM_SELECT goes back to the action menu. Status tick stays applied across cancels — `_player_ticked_this_turn` ensures it only fires once per turn, no matter how many sub-menus the player bounces through.
+
+**Damage popups** for items use distinct colors so the effect type reads at a glance: green for HEAL_HP, blue for HEAL_MP, orange for DAMAGE_FIXED. (Normal attack damage stays white; crits stay gold; poison ticks stay green-yellow.)
+
+**Adding a new item**: drop a `.tres` into `res://resources/items/`, fill in the Inspector fields. The combat sandbox auto-discovers it next time it loads — a SpinBox appears in the Inventory section. No code changes.
+
+**Adding a new effect kind**: add an entry to `Item.EffectKind`, add a match arm in `battle.gd::_use_item`, and (optionally) define a new popup color constant in `battle.gd`. The default-target-for-item lookup also needs a match arm if the new effect's default target isn't the player.
+
 ## Equipment System
 The Hero has three equipment slots: **Weapon**, **Armor**, **Accessory**. Each holds at most one `Equipment` Resource. Equipment templates live as `.tres` files in `res://resources/equipment/`.
 
