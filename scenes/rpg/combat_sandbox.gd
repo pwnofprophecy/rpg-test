@@ -25,9 +25,10 @@
 # What lives elsewhere:
 #   - The damage formula and battle flow live in battle.gd, not here.
 #   - Battle launching uses the same path the overworld uses: set
-#     GameManager.pending_battle_enemy, set battle_returns_to_sandbox,
-#     and switch worlds. battle.gd's _finish_battle_and_return reads
-#     the sandbox flag and routes back here on end.
+#     GameManager.pending_battle_enemies (one EnemyStats per non-empty
+#     slot), set battle_returns_to_sandbox, and switch worlds.
+#     battle.gd's _finish_battle_and_return reads the sandbox flag and
+#     routes back here on end.
 
 extends Node2D
 
@@ -65,6 +66,12 @@ const _EQUIPMENT_SLOTS: Array[Dictionary] = [
 	{"label": "Accessory", "slot": Equipment.Slot.ACCESSORY},
 ]
 
+# All status effects the sandbox lets you toggle on/off. Add new
+# statuses here as they're implemented in battle.gd. Strings must
+# match what battle.gd looks for in RPGState.status_effects /
+# _enemy_statuses (case-sensitive).
+const _KNOWN_STATUSES: Array[String] = ["Poisoned"]
+
 # Folder we scan for enemy templates. Add a .tres here and it'll show up
 # in the dropdown automatically next time the sandbox loads.
 const _ENEMIES_FOLDER: String = "res://resources/enemies/"
@@ -79,12 +86,17 @@ const _EQUIPMENT_FOLDER: String = "res://resources/equipment/"
 # moving columns, etc. — without breaking the script. Each name must
 # still be unique within the scene.
 @onready var player_stats_container: VBoxContainer = find_child("PlayerStatsContainer") as VBoxContainer
+# Legacy single-enemy dropdown — kept in the .tscn but no longer used
+# directly. The sandbox now generates four slot dropdowns programmatically
+# (see _populate_enemy_slots below) so we get multi-enemy fights.
+# We hide the legacy widget at _ready and rebuild the slots in its place.
 @onready var enemy_option: OptionButton = find_child("EnemyOption") as OptionButton
-# Optional VBox that gets populated with the selected enemy's stats so
-# you can see what you're about to fight without alt-tabbing into the
-# .tres file. Stays null if the .tscn doesn't have the node — handled
-# by null checks downstream.
 @onready var enemy_stats_display: VBoxContainer = find_child("EnemyStatsDisplay") as VBoxContainer
+
+# Number of enemy slot rows the sandbox renders. Each row has a
+# dropdown (None + every loaded enemy) plus a compact stat readout.
+# Tweak here if you want more or fewer slots.
+const ENEMY_SLOT_COUNT: int = 4
 @onready var mods_container: VBoxContainer = find_child("ModsContainer") as VBoxContainer
 @onready var start_battle_button: Button = find_child("StartBattleButton") as Button
 @onready var reset_button: Button = find_child("ResetButton") as Button
@@ -113,25 +125,42 @@ var _effective_labels: Dictionary = {}
 var _equipment_choices: Dictionary = {}
 var _equipment_dropdowns: Dictionary = {}
 
+# Map of status name → CheckBox driving the player's status toggle.
+# Resync'd on RPGState.stats_changed so external mutations (battle
+# outcomes, equipment-granted cures, future spells) reflect in the
+# sandbox UI.
+var _player_status_checkboxes: Dictionary = {}
+
+# Same idea for the enemy side — keyed by status name so we can resync
+# when the enemy selection changes (a freshly-picked Skeleton might
+# be immune to statuses the previous enemy wasn't, so we filter them
+# out and uncheck the boxes).
+var _enemy_status_checkboxes: Dictionary = {}
+
+# Per-slot widget references for the multi-enemy picker. Each entry:
+#   { "dropdown": OptionButton, "stats_label": Label }
+# Indexed by slot (0..ENEMY_SLOT_COUNT-1).
+var _enemy_slots: Array = []
+
 
 func _ready() -> void:
 	_populate_player_stats()
-	_populate_enemy_dropdown()
+	# Hide the .tscn's legacy single-enemy widgets — we render four
+	# multi-enemy slots in their place via _populate_enemy_slots below.
+	if enemy_option != null:
+		enemy_option.visible = false
+	if enemy_stats_display != null:
+		enemy_stats_display.visible = false
+	# Scan the enemies folder once and cache the list — used by every
+	# slot dropdown and any later refresh.
+	_enemy_choices = _scan_enemies_folder()
+	_populate_enemy_slots()
+	_populate_enemy_status_section()
 	_populate_mod_toggles()
 
 	start_battle_button.pressed.connect(_on_start_battle_pressed)
 	reset_button.pressed.connect(_on_reset_pressed)
 	exit_button.pressed.connect(_on_exit_pressed)
-
-	# Show the initially-selected enemy's stats, and update whenever the
-	# player picks a different one. We also persist the choice to
-	# GameManager so it survives the sandbox-reload that happens around
-	# each battle.
-	enemy_option.item_selected.connect(func(idx: int) -> void:
-		if idx >= 0 and idx < _enemy_choices.size():
-			GameManager.sandbox_selected_enemy = _enemy_choices[idx]
-		_refresh_enemy_stats_display())
-	_refresh_enemy_stats_display()
 
 	# Refresh the spin boxes whenever RPGState changes from outside (e.g.
 	# Reset to Defaults, equipping/unequipping). _refresh_stat_editors
@@ -190,6 +219,10 @@ func _populate_player_stats() -> void:
 	# only needs a new entry in _EQUIPMENT_SLOTS — no .tscn edit.
 	_populate_equipment_section()
 
+	# Status effect toggles below the Equipment section. Same pattern:
+	# all script-generated, driven by _KNOWN_STATUSES.
+	_populate_player_status_section()
+
 
 func _refresh_stat_editors() -> void:
 	# Re-pull values from RPGState into each SpinBox. Guarded against the
@@ -206,10 +239,20 @@ func _refresh_stat_editors() -> void:
 	# system equips/unequips on the player.
 	_refresh_equipment_dropdowns()
 
-	# Effective-stat labels refresh last, since they read both the
+	# Status checkboxes resync too so add_status/remove_status calls
+	# from outside the sandbox (e.g. a future battle that applies
+	# poison) update the visible checkbox state.
+	_refresh_player_status_checkboxes()
+
+	# Effective-stat labels refresh next, since they read both the
 	# (possibly just-resync'd) base stats AND the (possibly just-
 	# resync'd) equipment.
 	_refresh_effective_labels()
+
+	# Enemy slot readouts include matchup metrics (average damage,
+	# turns-to-KO) that depend on the player's effective stats, so
+	# they refresh whenever player stats might have changed.
+	_refresh_all_enemy_slot_stats()
 
 
 # Resyncs each slot dropdown to match what RPGState says is equipped.
@@ -305,6 +348,162 @@ func _populate_equipment_section() -> void:
 		player_stats_container.add_child(row)
 
 
+# --- Status effect section ---
+# Toggles below Equipment that apply/remove statuses on the Hero.
+# Routes to RPGState.add_status / remove_status which already emits
+# stats_changed, so the battle UI's status label and our own
+# checkbox refresh both stay in sync.
+
+func _populate_player_status_section() -> void:
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 8)
+	player_stats_container.add_child(spacer)
+
+	var header := Label.new()
+	header.text = "Statuses"
+	header.add_theme_font_size_override("font_size", 22)
+	player_stats_container.add_child(header)
+
+	for status_name in _KNOWN_STATUSES:
+		var cb := CheckBox.new()
+		cb.text = status_name
+		cb.button_pressed = RPGState.has_status(status_name)
+		var captured: String = status_name
+		cb.toggled.connect(func(pressed: bool) -> void:
+			if pressed:
+				# add_status returns false if it was rejected (already
+				# active or blocked by an equipment-granted immunity).
+				# Bounce the checkbox back so the visual state matches
+				# RPGState — clear feedback that the toggle didn't take.
+				var added: bool = RPGState.add_status(captured)
+				if not added:
+					cb.set_pressed_no_signal(RPGState.has_status(captured))
+			else:
+				RPGState.remove_status(captured))
+		_player_status_checkboxes[status_name] = cb
+		player_stats_container.add_child(cb)
+
+
+# Re-syncs each status checkbox to RPGState.has_status() — used when
+# something other than the sandbox mutates the player's statuses
+# (battle ticks aren't supposed to mutate them now, but future cure
+# items / spells will). set_pressed_no_signal avoids the toggled
+# signal firing in a loop.
+func _refresh_player_status_checkboxes() -> void:
+	for status_name in _player_status_checkboxes:
+		var cb: CheckBox = _player_status_checkboxes[status_name]
+		var current: bool = RPGState.has_status(status_name)
+		if cb.button_pressed != current:
+			cb.set_pressed_no_signal(current)
+
+
+# Builds a status section under the Enemy column. Mirrors the player
+# version but writes to GameManager.pending_battle_enemy_statuses
+# (which battle.gd reads on _ready) instead of RPGState. Lives as a
+# sibling of EnemyStatsDisplay rather than inside it, so it isn't
+# rebuilt when the dropdown selection changes.
+func _populate_enemy_status_section() -> void:
+	if enemy_option == null:
+		return
+	var middle_col: Node = enemy_option.get_parent()
+	if middle_col == null:
+		return
+
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 8)
+	middle_col.add_child(spacer)
+
+	var header := Label.new()
+	header.text = "Statuses"
+	header.add_theme_font_size_override("font_size", 22)
+	middle_col.add_child(header)
+
+	for status_name in _KNOWN_STATUSES:
+		var cb := CheckBox.new()
+		cb.text = status_name
+		cb.button_pressed = status_name in GameManager.pending_battle_enemy_statuses
+		var captured: String = status_name
+		cb.toggled.connect(func(pressed: bool) -> void:
+			if pressed:
+				# Reject the toggle if the currently-selected enemy is
+				# immune to this status — bounce the checkbox back
+				# rather than appending to pending_battle_enemy_statuses
+				# (which battle.gd would just filter out anyway).
+				if _selected_enemy_is_immune_to(captured):
+					cb.set_pressed_no_signal(false)
+					return
+				if not (captured in GameManager.pending_battle_enemy_statuses):
+					GameManager.pending_battle_enemy_statuses.append(captured)
+			else:
+				GameManager.pending_battle_enemy_statuses.erase(captured))
+		_enemy_status_checkboxes[status_name] = cb
+		middle_col.add_child(cb)
+
+	# Filter the initial state against the currently-selected enemy's
+	# immunities. Handles the edge case where the saved selection (an
+	# autoload-persisted Skeleton, say) is immune to a status that was
+	# left in the pending list from a previous session.
+	_refresh_enemy_status_checkboxes()
+
+
+# Returns true if every currently-selected enemy in any slot is immune
+# to this status. With multiple enemies, a status is considered
+# "blocked" only if literally none of the picked enemies could be
+# afflicted — otherwise we let the player apply it (the immune ones
+# just shrug it off at battle start).
+func _selected_enemy_is_immune_to(status_name: String) -> bool:
+	var any_susceptible: bool = false
+	var any_selected: bool = false
+	for sel in GameManager.sandbox_selected_enemies:
+		var enemy: EnemyStats = sel as EnemyStats
+		if enemy == null:
+			continue
+		any_selected = true
+		if not (status_name in enemy.status_immunities):
+			any_susceptible = true
+			break
+	# If no enemy is selected at all, allow the toggle so the user can
+	# pre-configure statuses before picking enemies.
+	if not any_selected:
+		return false
+	return not any_susceptible
+
+
+# Re-syncs each enemy status checkbox to whatever's actually pending.
+# Called when an enemy slot changes — switching to a Skeleton while
+# Poisoned is checked might leave Poisoned valid (because some other
+# slot still holds a Goblin). We only strip statuses that NO selected
+# enemy can be afflicted with.
+func _refresh_enemy_status_checkboxes() -> void:
+	# Filter the pending list: keep statuses that at least one selected
+	# enemy is susceptible to. If no enemies are selected at all, leave
+	# the list alone (preserves user intent before picking).
+	var any_selected: bool = false
+	for sel in GameManager.sandbox_selected_enemies:
+		if sel != null:
+			any_selected = true
+			break
+	if any_selected:
+		var still_pending: Array[String] = []
+		for status in GameManager.pending_battle_enemy_statuses:
+			var someone_susceptible: bool = false
+			for sel in GameManager.sandbox_selected_enemies:
+				var enemy: EnemyStats = sel as EnemyStats
+				if enemy != null and not (status in enemy.status_immunities):
+					someone_susceptible = true
+					break
+			if someone_susceptible:
+				still_pending.append(status)
+		GameManager.pending_battle_enemy_statuses = still_pending
+
+	# Then sync each checkbox to the (possibly now-shorter) pending list.
+	for status_name in _enemy_status_checkboxes:
+		var cb: CheckBox = _enemy_status_checkboxes[status_name]
+		var should_be_checked: bool = status_name in GameManager.pending_battle_enemy_statuses
+		if cb.button_pressed != should_be_checked:
+			cb.set_pressed_no_signal(should_be_checked)
+
+
 # Scans res://resources/equipment/ for every .tres, loads each as
 # Equipment, and groups them by slot. Returns a Dictionary keyed by
 # the Equipment.Slot int with Array[Equipment] values. Items within
@@ -343,79 +542,206 @@ func _scan_equipment_folder() -> Dictionary:
 	return by_slot
 
 
-# --- Enemy dropdown ---
+# --- Enemy slot picker (multi-enemy) ---
 
-func _populate_enemy_dropdown() -> void:
-	_enemy_choices = _scan_enemies_folder()
-	enemy_option.clear()
-	if _enemy_choices.is_empty():
-		enemy_option.add_item("(no enemies found)")
-		enemy_option.disabled = true
-		start_battle_button.disabled = true
+# Builds ENEMY_SLOT_COUNT slot rows under MiddleColumn. Each row has
+# a dropdown (None + every loaded enemy) and a one-line stat readout.
+# Slot selections persist via GameManager.sandbox_selected_enemies so
+# the picks survive battle round-trips.
+func _populate_enemy_slots() -> void:
+	if enemy_option == null:
 		return
-	for stats in _enemy_choices:
-		enemy_option.add_item(stats.enemy_name)
+	var middle_col: Node = enemy_option.get_parent()
+	if middle_col == null:
+		return
 
-	# Restore the last-selected enemy if there is one and it's still in
-	# the list. find() works here because Godot's resource cache returns
-	# the same instance for a given path on subsequent load() calls — so
-	# the freshly-loaded EnemyStats and the saved reference are the same
-	# object. If the user deleted/renamed the enemy file between sessions,
-	# find() returns -1 and we fall through to the default index 0.
-	if GameManager.sandbox_selected_enemy != null:
-		var saved: EnemyStats = GameManager.sandbox_selected_enemy as EnemyStats
+	# Header for the section.
+	var header := Label.new()
+	header.text = "Enemy Slots"
+	header.add_theme_font_size_override("font_size", 18)
+	middle_col.add_child(header)
+
+	# Make sure the persisted selections list is sized correctly. If the
+	# saved array is shorter (e.g. older save), pad with nulls. If
+	# longer, truncate.
+	while GameManager.sandbox_selected_enemies.size() < ENEMY_SLOT_COUNT:
+		GameManager.sandbox_selected_enemies.append(null)
+	if GameManager.sandbox_selected_enemies.size() > ENEMY_SLOT_COUNT:
+		GameManager.sandbox_selected_enemies = GameManager.sandbox_selected_enemies.slice(0, ENEMY_SLOT_COUNT)
+
+	for i in ENEMY_SLOT_COUNT:
+		var slot := _build_enemy_slot(i)
+		middle_col.add_child(slot)
+
+
+# Builds one slot row: "Slot N: [dropdown ▼]  HP X ATK Y DEF Z".
+# Dropdown changes write back to GameManager.sandbox_selected_enemies
+# and refresh the stats label inline.
+func _build_enemy_slot(slot_index: int) -> Control:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+
+	# Top: label + dropdown side-by-side.
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+
+	var label := Label.new()
+	label.text = "Slot %d" % (slot_index + 1)
+	label.custom_minimum_size = Vector2(60, 0)
+	top.add_child(label)
+
+	var dropdown := OptionButton.new()
+	dropdown.add_item("(None)")
+	for stats in _enemy_choices:
+		dropdown.add_item(stats.enemy_name)
+
+	# Restore saved selection: index 0 is "(None)", subsequent indices
+	# map 1:1 to _enemy_choices entries.
+	var saved: EnemyStats = GameManager.sandbox_selected_enemies[slot_index] as EnemyStats
+	if saved != null:
 		var idx: int = _enemy_choices.find(saved)
 		if idx >= 0:
-			enemy_option.selected = idx
+			dropdown.selected = idx + 1
+
+	top.add_child(dropdown)
+	row.add_child(top)
+
+	# Bottom: compact stats readout.
+	var stats_label := Label.new()
+	stats_label.add_theme_font_size_override("font_size", 12)
+	stats_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	row.add_child(stats_label)
+
+	# Stash refs so refresh helpers can find this slot's widgets.
+	_enemy_slots.append({"dropdown": dropdown, "stats_label": stats_label})
+
+	# Wire selection change. picked_idx 0 = "(None)" → null. picked_idx
+	# > 0 → _enemy_choices[picked_idx - 1].
+	var captured: int = slot_index
+	dropdown.item_selected.connect(func(picked_idx: int) -> void:
+		var picked: EnemyStats = null
+		if picked_idx > 0 and picked_idx - 1 < _enemy_choices.size():
+			picked = _enemy_choices[picked_idx - 1]
+		GameManager.sandbox_selected_enemies[captured] = picked
+		_refresh_enemy_slot_stats(captured)
+		# Re-filter pending statuses against the union of immunities
+		# across all selected enemies.
+		_refresh_enemy_status_checkboxes())
+
+	# Initial stat readout.
+	_refresh_enemy_slot_stats.call_deferred(slot_index)
+
+	return row
 
 
-# Rebuilds the enemy stats display panel for whichever enemy is
-# currently selected in the dropdown. Saves you from opening the .tres
-# file every time you want to know what you're fighting.
-#
-# The label-value pairs come from a small inline list rather than a
-# const so we can format strings (e.g. "5 (XP reward)" if needed
-# later). Adding a new EnemyStats field means one new line here.
-func _refresh_enemy_stats_display() -> void:
-	if enemy_stats_display == null:
+# Updates the compact stats readout under a slot's dropdown based on
+# whatever's currently selected. Empty for "(None)" slots. The readout
+# shows:
+#   Line 1: raw stats — HP, ATK, DEF, PWR
+#   Line 2: average damage in each direction (enemy → player, player → enemy)
+#   Line 3: turns-to-KO in each direction (assuming basic attacks only)
+#   Line 4 (optional): status immunities, if any
+# Lines 2/3 use the player's CURRENT effective stats, so they update
+# whenever the player tweaks a SpinBox or swaps equipment.
+func _refresh_enemy_slot_stats(slot_index: int) -> void:
+	if slot_index < 0 or slot_index >= _enemy_slots.size():
+		return
+	var slot: Dictionary = _enemy_slots[slot_index]
+	var lbl: Label = slot["stats_label"]
+	var stats: EnemyStats = GameManager.sandbox_selected_enemies[slot_index] as EnemyStats
+	if stats == null:
+		lbl.text = ""
 		return
 
-	# Clear previous rows.
-	for child in enemy_stats_display.get_children():
-		child.queue_free()
+	var m: Dictionary = _calculate_matchup_metrics(stats)
 
-	if _enemy_choices.is_empty():
-		return
-	var sel: int = enemy_option.selected
-	if sel < 0 or sel >= _enemy_choices.size():
-		return
-	var stats: EnemyStats = _enemy_choices[sel]
-
-	var rows: Array[Array] = [
-		["Max HP",   str(stats.max_hp)],
-		["Attack",   str(stats.attack)],
-		["Defense",  str(stats.defense)],
-		["Speed",    str(stats.speed)],
-		["Int",      str(stats.intelligence)],
-		["Luck",     str(stats.luck)],
-		["Power",    str(stats.base_power)],
-		["XP",       str(stats.xp_reward)],
-		["Gold",     str(stats.gold_reward)],
+	var lines: Array[String] = [
+		"HP %d  ATK %d  DEF %d  PWR %d" % [stats.max_hp, stats.attack, stats.defense, stats.base_power],
+		"Their hit: %d  •  Your hit: %d" % [m["enemy_dmg"], m["player_dmg"]],
+		"Kills you in %d  •  Dies in %d" % [m["turns_to_kill_player"], m["turns_to_die"]],
 	]
-	for row_data in rows:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 12)
+	if not stats.status_immunities.is_empty():
+		lines.append("Immune: " + ", ".join(stats.status_immunities))
 
-		var label := Label.new()
-		label.text = row_data[0]
-		label.custom_minimum_size = Vector2(80, 0)
-		row.add_child(label)
+	# Two-space indent on each line so the readout visually nests under
+	# its dropdown.
+	lbl.text = "  " + "\n  ".join(lines)
 
-		var value := Label.new()
-		value.text = row_data[1]
-		row.add_child(value)
 
-		enemy_stats_display.add_child(row)
+# Computes average damage and turns-to-KO numbers for the given enemy
+# against the player's CURRENT effective stats. Returns:
+#   { "enemy_dmg":            avg damage the enemy lands on the player
+#     "player_dmg":           avg damage the player lands on the enemy
+#     "turns_to_kill_player": ceil(player.hp / enemy_dmg)
+#     "turns_to_die":         ceil(enemy.max_hp / player_dmg) }
+#
+# Uses the same formula as battle.gd's _calculate_damage, with the
+# random and crit factors averaged so the result is the long-run
+# expected damage rather than any single roll.
+func _calculate_matchup_metrics(enemy: EnemyStats) -> Dictionary:
+	# Damage formula constants must stay in sync with battle.gd. If
+	# those values change, update here too — or extract both to a
+	# shared CombatBalance Resource later.
+	const _CRIT_MULTIPLIER: float = 1.5
+	const _RANDOM_LOW: float = 0.85
+	const _RANDOM_HIGH: float = 1.0
+	const _MAX_CRIT_CHANCE: float = 0.5
+	const _LUCK_TO_CRIT_PERCENT: float = 1.0
+
+	# Average random multiplier across a uniform [low, high] roll.
+	var avg_random: float = (_RANDOM_LOW + _RANDOM_HIGH) / 2.0
+
+	# Average crit factor = 1.0 weighted by (1 - p_crit) + 1.5 weighted
+	# by p_crit. Crit chance is luck × 1% capped at 50%.
+	var enemy_crit_p: float = clampf(
+		float(enemy.luck) * _LUCK_TO_CRIT_PERCENT / 100.0, 0.0, _MAX_CRIT_CHANCE)
+	var enemy_crit_factor: float = 1.0 + enemy_crit_p * (_CRIT_MULTIPLIER - 1.0)
+
+	var player_crit_p: float = clampf(
+		float(RPGState.get_effective_luck()) * _LUCK_TO_CRIT_PERCENT / 100.0,
+		0.0, _MAX_CRIT_CHANCE)
+	var player_crit_factor: float = 1.0 + player_crit_p * (_CRIT_MULTIPLIER - 1.0)
+
+	# Damage formula: (2 × (A + Power) / D + 2) × crit_factor × random.
+	# Each defense clamped at 1 to avoid div-by-zero.
+	var safe_def_player: int = maxi(RPGState.get_effective_defense(), 1)
+	var safe_def_enemy: int = maxi(enemy.defense, 1)
+
+	var enemy_eff_atk: int = enemy.attack + enemy.base_power
+	var enemy_raw: float = (
+		(2.0 * float(enemy_eff_atk) / float(safe_def_player) + 2.0)
+		* enemy_crit_factor * avg_random)
+	var enemy_dmg: int = maxi(1, int(enemy_raw))
+
+	var player_eff_atk: int = (
+		RPGState.get_effective_attack() + RPGState.get_effective_base_power())
+	var player_raw: float = (
+		(2.0 * float(player_eff_atk) / float(safe_def_enemy) + 2.0)
+		* player_crit_factor * avg_random)
+	var player_dmg: int = maxi(1, int(player_raw))
+
+	# Turns-to-KO. Uses CURRENT hp (not max) so taking damage in
+	# sandbox testing shifts the metric — "if the fight started right
+	# now, this is how many hits until lights out". ceil() so partial
+	# rounds count as a full turn.
+	var ttk_player: int = int(ceil(float(RPGState.hp) / float(enemy_dmg)))
+	var ttk_enemy: int = int(ceil(float(enemy.max_hp) / float(player_dmg)))
+
+	return {
+		"enemy_dmg": enemy_dmg,
+		"player_dmg": player_dmg,
+		"turns_to_kill_player": ttk_player,
+		"turns_to_die": ttk_enemy,
+	}
+
+
+# Refreshes every slot's stat readout. Called whenever player stats
+# might have changed (SpinBox edit, equipment swap, Reset to Defaults)
+# so the per-slot metrics stay in sync with the player's effective
+# stats.
+func _refresh_all_enemy_slot_stats() -> void:
+	for i in _enemy_slots.size():
+		_refresh_enemy_slot_stats(i)
 
 
 # Scans res://resources/enemies/ for every .tres and loads each as
@@ -503,15 +829,23 @@ func _populate_mod_toggles() -> void:
 # --- Button handlers ---
 
 func _on_start_battle_pressed() -> void:
-	if _enemy_choices.is_empty():
+	# Build the pending list from non-empty slots, preserving order
+	# (slot 0 → leftmost on screen). Empty slots are silently dropped
+	# so a fight with slots [Goblin, None, Bandit, None] becomes a
+	# Goblin + Bandit battle.
+	var roster: Array = []
+	for sel in GameManager.sandbox_selected_enemies:
+		var stats: EnemyStats = sel as EnemyStats
+		if stats != null:
+			roster.append(stats)
+
+	if roster.is_empty():
+		# Refuse to start a fight with zero enemies — would just sit on
+		# the action menu forever. Surface a warning rather than crash.
+		push_warning("combat_sandbox: at least one enemy slot must be set before starting a battle")
 		return
-	# OptionButton.selected returns the chosen item's index in the list
-	# (the values we passed to add_item earlier). Out-of-range guards
-	# against an empty/unset selection.
-	var sel: int = enemy_option.selected
-	if sel < 0 or sel >= _enemy_choices.size():
-		sel = 0
-	GameManager.pending_battle_enemy = _enemy_choices[sel]
+
+	GameManager.pending_battle_enemies = roster
 	GameManager.battle_returns_to_sandbox = true
 	# Use the RPG world's BATTLE sub-location so main.gd routes us into
 	# battle.tscn the same way a real encounter would.

@@ -99,20 +99,30 @@ func switch_rpg_location(loc: RPGLocation) -> void:
 # the battle ends. battle.gd reads `pending_battle_enemy` on _ready, and
 # checks `battle_returns_to_sandbox` in _finish_battle_and_return.
 
-# When non-null, battle.gd will use this EnemyStats Resource instead of
-# its @export defaults. Cleared by battle.gd after consuming.
-var pending_battle_enemy: Resource = null
+# When non-empty, battle.gd will spawn one enemy per element instead
+# of using its @export defaults. Each entry is an EnemyStats Resource.
+# Order in the array becomes left-to-right order on screen. Cleared by
+# battle.gd after consuming.
+var pending_battle_enemies: Array = []
 
 # When true, battle end returns the player to the sandbox instead of the
 # usual rpg_battle_return_location. Cleared by battle.gd after consuming.
 var battle_returns_to_sandbox: bool = false
 
-# The enemy the sandbox dropdown was last set to. Persisted here (rather
-# than on the sandbox node) because the sandbox scene gets fully unloaded
-# and reloaded around each battle — without this, the dropdown would
-# reset to its alphabetical default every time. Matched against the
-# enemy list on sandbox _ready to restore the user's selection.
-var sandbox_selected_enemy: Resource = null
+# The enemies the sandbox slot dropdowns were last set to. Index in
+# this array matches sandbox slot index. null entries = "(None)" /
+# empty slot. Persisted here (rather than on the sandbox node)
+# because the sandbox scene gets fully unloaded and reloaded around
+# each battle.
+var sandbox_selected_enemies: Array = [null, null, null, null]
+
+# Status effects that should be applied to every enemy spawned in the
+# next battle. The sandbox toggles these (per status, e.g. ["Poisoned"])
+# and battle.gd copies them into each BattleEnemy's status list on
+# _ready, filtering out anything that enemy is immune to. Persists
+# across sandbox round-trips so toggling once stays in effect for
+# subsequent Start Battle presses.
+var pending_battle_enemy_statuses: Array[String] = []
 
 
 # --- Progression Flags (stubs for future phases) ---

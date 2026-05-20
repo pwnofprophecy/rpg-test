@@ -142,11 +142,19 @@ func _seed_from_template(include_name: bool) -> void:
 # Parameter is `status_name` (not `name`) because every Node has a built-in
 # `name` property — using it as a parameter name shadows it and Godot warns.
 
-func add_status(status_name: String) -> void:
+# Returns true if the status was actually added, false if it was
+# rejected (empty name, already active, or blocked by an equipment-
+# granted immunity). Callers that care about feedback (e.g. the
+# sandbox checkbox auto-revert) read the return value; callers that
+# don't can ignore it like before.
+func add_status(status_name: String) -> bool:
 	if status_name == "" or status_effects.has(status_name):
-		return
+		return false
+	if get_status_immunities().has(status_name):
+		return false
 	status_effects.append(status_name)
 	stats_changed.emit()
+	return true
 
 
 func remove_status(status_name: String) -> void:
@@ -184,6 +192,12 @@ func equip(item: Equipment) -> void:
 		_:
 			push_warning("RPGState.equip: unknown slot %s" % item.slot)
 			return
+	# Equipping a piece that grants immunity to a status the Hero
+	# already has should also CURE the status — otherwise putting on
+	# an Antidote Ring while poisoned is useless until you manually
+	# clear the status. Pure prevention is less intuitive than
+	# prevention + cure.
+	_purge_immunized_statuses()
 	stats_changed.emit()
 
 
@@ -256,3 +270,29 @@ func _equipment_bonus(field: String) -> int:
 			# inference warnings in stricter GDScript modes.
 			sum += int(eq.get(field))
 	return sum
+
+
+# Returns the union of every status_immunities list across all three
+# equipped slots. add_status() consults this to reject statuses the
+# wearer is immune to; equip() consults it to cure already-active
+# statuses that the new piece would now block.
+func get_status_immunities() -> Array[String]:
+	var combined: Array[String] = []
+	for eq in [equipped_weapon, equipped_armor, equipped_accessory]:
+		if eq == null:
+			continue
+		for status in eq.status_immunities:
+			if not (status in combined):
+				combined.append(status)
+	return combined
+
+
+# Strips any currently-active status effects that the Hero is now
+# immune to (e.g. just equipped an Antidote Ring while poisoned).
+# Caller is expected to emit stats_changed afterward — equip() does
+# this once per equip rather than emitting twice.
+func _purge_immunized_statuses() -> void:
+	var immunities: Array[String] = get_status_immunities()
+	for status in immunities:
+		if status_effects.has(status):
+			status_effects.erase(status)

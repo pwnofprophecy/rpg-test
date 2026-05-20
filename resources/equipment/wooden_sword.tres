@@ -1,11 +1,9 @@
-[gd_resource type="Resource" script_class="Equipment" format=3]
+[gd_resource type="Resource" script_class="Equipment" format=3 uid="uid://vdbf1uwpwg2o"]
 
-[ext_resource type="Script" path="res://resources/equipment.gd" id="1"]
+[ext_resource type="Script" uid="uid://b35wpikpwgsm8" path="res://resources/equipment.gd" id="1"]
 
 [resource]
 script = ExtResource("1")
 item_name = "WOODEN SWORD"
-slot = 0
 description = "A simple training blade."
-attack_bonus = 2
 power_bonus = 4

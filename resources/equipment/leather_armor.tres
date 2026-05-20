@@ -1,11 +1,10 @@
-[gd_resource type="Resource" script_class="Equipment" format=3]
+[gd_resource type="Resource" script_class="Equipment" format=3 uid="uid://dalg7nep8ykkb"]
 
-[ext_resource type="Script" path="res://resources/equipment.gd" id="1"]
+[ext_resource type="Script" uid="uid://b35wpikpwgsm8" path="res://resources/equipment.gd" id="1"]
 
 [resource]
 script = ExtResource("1")
 item_name = "LEATHER ARMOR"
 slot = 1
 description = "Cured hide; stops most claws."
-hp_bonus = 10
 defense_bonus = 4

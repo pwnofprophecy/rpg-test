@@ -52,20 +52,43 @@ static func spawn(parent: Node, world_pos: Vector2, damage: int, is_crit: bool) 
 	var popup := DamagePopup.new()
 	parent.add_child(popup)
 	popup.global_position = world_pos
-	# z_index bumped so the popup always renders above the sprite layer
-	# regardless of tree-order shenanigans.
 	popup.z_index = 100
 	popup._init_visuals(damage, is_crit)
+
+
+# Variant for damage that isn't a normal attack (status ticks, environment
+# hazards, etc). Lets the caller pick a tint so the type of damage reads
+# at a glance — e.g. green for poison, blue for ice, red for burn. Uses
+# the normal (non-crit) font size; status ticks aren't crits.
+static func spawn_status(parent: Node, world_pos: Vector2, damage: int, color: Color) -> void:
+	var popup := DamagePopup.new()
+	parent.add_child(popup)
+	popup.global_position = world_pos
+	popup.z_index = 100
+	popup._init_visuals_colored(damage, color)
 
 
 # Builds the Label, applies styling, and starts the rise-and-fade tween.
 # Called immediately after spawn() positions the popup.
 func _init_visuals(damage: int, is_crit: bool) -> void:
-	var label := Label.new()
-	label.text = ("%d!" % damage) if is_crit else str(damage)
-
 	var color: Color = CRIT_COLOR if is_crit else NORMAL_COLOR
 	var font_size: int = CRIT_FONT_SIZE if is_crit else NORMAL_FONT_SIZE
+	var text: String = ("%d!" % damage) if is_crit else str(damage)
+	_build_label_and_animate(text, color, font_size)
+
+
+# Variant: arbitrary color, normal size, no "!" suffix. Used by status
+# ticks where the type of damage matters more than its magnitude.
+func _init_visuals_colored(damage: int, color: Color) -> void:
+	_build_label_and_animate(str(damage), color, NORMAL_FONT_SIZE)
+
+
+# Shared label-construction path so the two _init_visuals* variants
+# don't drift in styling. Adds the label to this Node2D and kicks off
+# the rise/fade animation.
+func _build_label_and_animate(text: String, color: Color, font_size: int) -> void:
+	var label := Label.new()
+	label.text = text
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_outline_color", OUTLINE_COLOR)

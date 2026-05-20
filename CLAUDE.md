@@ -185,9 +185,50 @@ The full math lives in `battle.gd::_calculate_damage()`. Tuning constants (`STAT
 `HeroStats` and `EnemyStats` both have a `base_power: int` field. Set to 0 means raw stats only (unarmed). Weapons/spells eventually override this with their own Power values when equipped or cast.
 
 ## Enemy Templates
-Enemies are defined as `EnemyStats` Resource `.tres` files in `res://resources/enemies/`. Each has the standard combat stats (max_hp, attack, defense, speed, intelligence, luck, base_power) plus reward fields (xp_reward, gold_reward) for future use.
+Enemies are defined as `EnemyStats` Resource `.tres` files in `res://resources/enemies/`. Each has the standard combat stats (max_hp, attack, defense, speed, intelligence, luck, base_power), `status_immunities: Array[String]`, plus reward fields (xp_reward, gold_reward) for future use.
 
-`battle.gd` reads enemy stats from `GameManager.pending_battle_enemy` (an `EnemyStats` Resource) when set, and falls back to the @export defaults on the battle node otherwise. The combat sandbox uses this — it sets `pending_battle_enemy` before launching the battle. The random-encounter path on the overworld currently uses the @export defaults; later it'll set `pending_battle_enemy` based on the encounter table.
+`battle.gd` reads enemy roster from `GameManager.pending_battle_enemies` (an `Array` of `EnemyStats` Resources). Each entry spawns one enemy on screen, in array order, left-to-right. The combat sandbox sets this from its 4 slot dropdowns before launching the battle. Random encounters from the overworld leave the array empty, in which case `battle.gd` synthesizes a single-enemy fight from the `@export` defaults.
+
+## Multi-Enemy Battles
+A battle can host any number of enemies (sandbox lets you pick up to 4 via slot dropdowns). Per-enemy state lives in the `BattleEnemy` inner class on `battle.gd` — bundles the EnemyStats template, mutable runtime fields (hp, statuses, immunities) and refs to the on-screen widgets (sprite + HP bar VBox + status label + target indicator).
+
+**Layout**: enemy sprites lay out in a horizontal row centered on `ENEMY_ROW_CENTER_X`, spaced evenly across `ENEMY_ROW_TOTAL_WIDTH`. Each enemy has its own HP bar VBox (name, bar, current/max text, status label, ▼ target indicator) anchored above its spawn position via `ENEMY_HP_BAR_OFFSET_Y`. The HP bar widgets live on the BattleUI CanvasLayer so they stay put during camera shake / lunges. Enemy sprites are smaller (`ENEMY_SPRITE_SCALE = 3,3` vs the original 4,4) and the player sprite was moved down to `(200, 470)` to make room above for HP bar widgets.
+
+**Targeting**: after the player picks Attack, `BattleState.TARGET_SELECT` runs. Left/Right arrows cycle through living enemies, Enter confirms, Escape/Backspace cancels back to the action menu. The currently-targeted enemy gets a gold sprite tint plus a ▼ indicator floating above their HP bar. `_target_index` holds the current selection; `_run_player_attack` consumes it.
+
+**Turn order**: player goes first, then each living enemy takes a turn in left-to-right order via `_run_enemy_turn` looping over `_enemies` and calling `_take_enemy_turn(be)`. Dead enemies are skipped. WIN triggers when `_all_enemies_defeated()` returns true; LOSE triggers immediately if `RPGState.hp` hits 0 mid-loop.
+
+**Adding a new enemy template**: drop a `.tres` into `res://resources/enemies/`, fill in the EnemyStats fields. The combat sandbox auto-discovers it and populates all four slot dropdowns the next time it loads.
+
+**Per-enemy sprites**: currently every enemy uses the same `enemy_placeholder.svg` texture defined as `ENEMY_TEXTURE` in `battle.gd`. Adding `@export var sprite: Texture2D` to `EnemyStats` and reading it in `_spawn_enemy_sprite` would make sprites per-enemy.
+
+## Status Effect System
+Status effects are stored as plain `String` tags so the system stays simple to extend.
+- **Player statuses** live on `RPGState.status_effects: Array[String]`. Mutate via `add_status(name)` / `remove_status(name)` / `has_status(name)` / `clear_statuses()`. These helpers all emit `stats_changed` so listeners (battle UI, sandbox checkboxes) refresh automatically.
+- **Enemy statuses** live per-enemy on each `BattleEnemy.statuses: Array[String]` instance (per-battle, not persisted). Seeded from `GameManager.pending_battle_enemy_statuses` on battle `_ready` so the sandbox can spawn pre-statused enemies. The pending list is applied to EVERY enemy in the roster (filtered through each enemy's individual immunities).
+
+**Tick timing**: status effects fire at the START of a combatant's turn, before their action runs.
+- Player: in `_on_action_selected`, after the action is chosen, before transitioning to TARGET_SELECT / SUB_MENU / ESCAPE. The `back` cancel doesn't burn a turn so it skips the tick.
+- Enemy: at the top of each enemy's `_take_enemy_turn`, before their attack rolls. Multi-enemy fights tick each living enemy separately as their turn comes up.
+- If a tick drops HP to 0, the turn ends immediately with WIN/LOSE — the action does not run.
+
+**Currently implemented**:
+- **Poisoned**: `max(1, floor(max_hp × 0.05))` damage per turn. Visual: green damage popup, HP bar drains, message "*Name* is hurt by poison!", ~1.2s read pause. See `STATUS_POISONED`, `POISON_PERCENT_DAMAGE`, `POISON_POPUP_COLOR` constants in `battle.gd`. Two tick variants exist: `_tick_poison_player()` and `_tick_poison_enemy(be)` — they share the formula but write to different state (RPGState vs BattleEnemy).
+
+**Adding a new status effect**:
+1. Add a `STATUS_<NAME>: String` const + tuning constants to `battle.gd`.
+2. Add `_tick_<name>_player()` and `_tick_<name>_enemy(be)` helpers modeled on the poison pair.
+3. Add a match arm to `_apply_status_tick` (player) and `_apply_status_tick_for_enemy` (enemy) routing the new status name to its tick helper.
+4. Add the status name to `_KNOWN_STATUSES` in `combat_sandbox.gd` so it gets a sandbox toggle.
+5. (Optional) Color the damage popup distinctly via `DamagePopup.spawn_status(parent, pos, damage, color)`.
+
+The status display in battle is a small purple `[Status1, Status2]` label — under the player's HP bar (created in `battle_ui.gd::_ready`), and under each enemy's HP bar (created in `battle.gd::_spawn_enemy_hp_bar`). Updated via `battle_ui.set_player_statuses(list)` for the player and `_refresh_enemy_status_label(be)` for each enemy. Empty lists hide the label.
+
+**Status immunities**: Both `EnemyStats` and `Equipment` have a `status_immunities: Array[String]` field.
+- **Enemy immunities** are inherent and edited per-enemy in the `.tres` (Skeleton.tres → `["Poisoned"]`, e.g.). Each spawned `BattleEnemy` copies its immunities to `BattleEnemy.immunities` at spawn and filters incoming statuses through them.
+- **Player immunities** come from equipped gear — `RPGState.get_status_immunities()` unions across all three slots. `RPGState.add_status()` checks immunities before applying and returns `bool` so callers can detect rejection. `RPGState.equip()` also calls `_purge_immunized_statuses()` so equipping an Antidote Ring while poisoned actually cures the poison — equipment grants both prevention AND cure.
+
+The combat sandbox auto-bounces a status checkbox back to false when an immunity blocks the toggle (player or enemy side), and filters out incompatible statuses when switching enemies in the dropdown — so you always see what's actually going to apply.
 
 ## Equipment System
 The Hero has three equipment slots: **Weapon**, **Armor**, **Accessory**. Each holds at most one `Equipment` Resource. Equipment templates live as `.tres` files in `res://resources/equipment/`.

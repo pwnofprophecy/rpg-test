@@ -42,6 +42,15 @@ extends Resource
 # punch above their stat line.
 @export var base_power: int = 0
 
+# --- Status resistances ---
+# Status effect names this enemy is fully immune to. Anything in this
+# list cannot be applied to the enemy — sandbox toggles, future spells,
+# environmental effects, etc. all check here before adding.
+# Examples: ["Poisoned"] for a Skeleton, ["Burned", "Frozen"] for a
+# Stone Golem. Strings must match what battle.gd looks for (case-
+# sensitive — see _KNOWN_STATUSES in combat_sandbox.gd for the live list).
+@export var status_immunities: Array[String] = []
+
 # --- Rewards (stubbed for now; XP/gold systems land in Phase 4 mods) ---
 @export var xp_reward: int = 0
 @export var gold_reward: int = 0

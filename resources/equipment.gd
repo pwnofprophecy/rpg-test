@@ -53,3 +53,12 @@ enum Slot { WEAPON, ARMOR, ACCESSORY }
 # = attack + 4 against the same defender. Spells later will use a
 # similar Power value computed at cast time rather than from a slot.
 @export var power_bonus: int = 0
+
+# --- Status immunities granted by this item ---
+# Status effect names that the wearer becomes immune to while this
+# piece is equipped. RPGState.get_status_immunities() unions these
+# across all three slots, so e.g. an Antidote Ring (immune to
+# Poisoned) and a Frozen Crown (immune to Frozen) stack to make the
+# wearer immune to both. Equipping a piece also clears any existing
+# statuses it would now block.
+@export var status_immunities: Array[String] = []

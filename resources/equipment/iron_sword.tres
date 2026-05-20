@@ -1,11 +1,9 @@
-[gd_resource type="Resource" script_class="Equipment" format=3]
+[gd_resource type="Resource" script_class="Equipment" format=3 uid="uid://bimjv8pdymh5x"]
 
-[ext_resource type="Script" path="res://resources/equipment.gd" id="1"]
+[ext_resource type="Script" uid="uid://b35wpikpwgsm8" path="res://resources/equipment.gd" id="1"]
 
 [resource]
 script = ExtResource("1")
 item_name = "IRON SWORD"
-slot = 0
 description = "A solid blade with real heft."
-attack_bonus = 4
 power_bonus = 8

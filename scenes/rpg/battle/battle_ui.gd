@@ -31,6 +31,13 @@ signal action_selected(action: String)
 @onready var player_hp_text: Label = $PlayerHealthBar/HPBar/HPText if has_node("PlayerHealthBar/HPBar/HPText") else null
 @onready var enemy_hp_text: Label = $EnemyHealthBar/HPBar/HPText if has_node("EnemyHealthBar/HPBar/HPText") else null
 
+# Status text labels appended below each HP bar at runtime in _ready.
+# Show comma-separated active status names like "[Poisoned]" — empty/
+# hidden when no statuses are active. Created programmatically rather
+# than in the .tscn so this script owns the lifecycle.
+var player_status_label: Label = null
+var enemy_status_label: Label = null
+
 # An array holding references to the four menu option labels,
 # in the order they appear in the 2x2 grid:
 #   [0: Attack]  [1: Cast]
@@ -97,6 +104,52 @@ func _ready() -> void:
 	]
 	for ctrl in pass_through:
 		(ctrl as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# Build status labels programmatically and tuck them inside the
+	# existing HealthBar VBoxContainers below the HPBar. Hidden by
+	# default; battle.gd calls set_*_statuses() to show them.
+	player_status_label = _make_status_label()
+	$PlayerHealthBar.add_child(player_status_label)
+	enemy_status_label = _make_status_label()
+	$EnemyHealthBar.add_child(enemy_status_label)
+
+
+# Builds a styled Label used for showing a combatant's active status
+# effects. Matches the muted-but-readable look of the rest of the
+# battle UI. mouse_filter is IGNORE so it doesn't intercept clicks
+# meant for the dismiss handler.
+func _make_status_label() -> Label:
+	var lbl := Label.new()
+	lbl.text = ""
+	lbl.visible = false
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.add_theme_color_override("font_color", Color(0.8, 0.7, 1.0))
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return lbl
+
+
+# Public setter — battle.gd calls this whenever the player's active
+# statuses change so the on-screen label stays in sync.
+func set_player_statuses(statuses: Array) -> void:
+	_apply_status_label(player_status_label, statuses)
+
+
+# Same for the enemy.
+func set_enemy_statuses(statuses: Array) -> void:
+	_apply_status_label(enemy_status_label, statuses)
+
+
+# Formats and shows/hides a status label based on the supplied list.
+# Empty list → hidden. Non-empty → "[Status1, Status2]" rendered.
+func _apply_status_label(label: Label, statuses: Array) -> void:
+	if label == null:
+		return
+	if statuses.is_empty():
+		label.text = ""
+		label.visible = false
+	else:
+		label.text = "[%s]" % ", ".join(statuses)
+		label.visible = true
 
 
 # Pointer moved over a menu option. Move the cursor there so the ">"
@@ -329,6 +382,18 @@ func enter_sub_menu() -> void:
 	menu_box.visible = false
 	menu_active = false
 	sub_menu_active = true
+
+
+# Hides the .tscn's hardcoded single-enemy widgets so battle.gd's
+# programmatically-spawned per-enemy bars are the only enemy UI on
+# screen. Called from battle.gd::_ready. Also hides the
+# enemy_status_label which sits inside the now-hidden EnemyHealthBar
+# but Godot leaves it visible if its parent's children are individually
+# placed (defensive double-hide).
+func hide_legacy_enemy_widgets() -> void:
+	$EnemyHealthBar.visible = false
+	if enemy_status_label != null:
+		enemy_status_label.visible = false
 
 
 # Convenience: was this input a left mouse-button press? Used to treat a
