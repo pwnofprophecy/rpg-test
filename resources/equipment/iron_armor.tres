@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="Equipment" format=3 uid="uid://be3xfcklukw0a"]
+
+[ext_resource type="Script" uid="uid://b35wpikpwgsm8" path="res://resources/equipment.gd" id="1_v48nr"]
+
+[resource]
+script = ExtResource("1_v48nr")
+item_name = "IRON ARMOR"
+slot = 1
+description = "Cheap iron armor"
+defense_bonus = 6

@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="Spell" format=3 uid="uid://djuk007tqiapi"]
+
+[ext_resource type="Script" uid="uid://nooswhi685ao" path="res://resources/spell.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+spell_name = "LIGHTNINGBOLT"
+description = "A bolt of lightning."
+mp_cost = 3
+power = 4
+popup_color = Color(0.62307584, 0.5282166, 0.24907437, 1)

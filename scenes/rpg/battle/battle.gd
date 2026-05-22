@@ -102,6 +102,12 @@ const RANDOM_HIGH: float = 1.0            # Upper bound of variance roll
 const LUCK_TO_CRIT_PERCENT: float = 1.0   # Crit chance = luck × this
 const MAX_CRIT_CHANCE: float = 0.5        # Hard cap on crit chance (50%)
 
+# Healing spells restore (Intelligence + spell.power) × this coefficient,
+# with the same crit + random variance as damage. No defense applies —
+# you don't "resist" a heal. At Int 5 + power 4 this gives ~18 base
+# (before variance), about 60% of the default 30 max HP per cast.
+const SPELL_HEAL_COEFFICIENT: float = 2.0
+
 # --- Runtime Variables ---
 # The player's HP lives on RPGState directly — we read and write it
 # there so the value persists across battles and the rest of the RPG
@@ -1525,14 +1531,14 @@ func _use_spell(spell: Spell, target_idx: int) -> void:
 	RPGState.stats_changed.emit()
 	battle_ui.update_player_mp(RPGState.mp)
 
-	# DAMAGE runs the cast gesture + applies damage; the reserved kinds
-	# are no-ops for now. The returned message is discarded in favor of
-	# the simple "casts X" line below.
+	# DAMAGE and HEAL_HP run their cast gesture + apply the effect.
+	# CURE_STATUS is still a no-op placeholder. The returned message is
+	# discarded in favor of the simple "casts X" line below.
 	match spell.effect_kind:
 		Spell.EffectKind.DAMAGE:
 			await _apply_spell_damage(spell, target_is_player, target_enemy)
 		Spell.EffectKind.HEAL_HP:
-			pass  # Reserved — not yet implemented.
+			await _apply_spell_heal(spell, target_is_player, target_enemy)
 		Spell.EffectKind.CURE_STATUS:
 			pass  # Reserved — not yet implemented.
 
@@ -1634,6 +1640,63 @@ func _apply_spell_damage(spell: Spell, target_is_player: bool, target_enemy: Bat
 	var crit_text: String = " Critical hit!" if is_crit else ""
 	return "%s cast %s on %s! %d damage.%s" % [
 		RPGState.get_display_name(), spell.spell_name, target_enemy.name, damage, crit_text]
+
+
+# Heal-spell effect: restores HP to the target, scaled by Intelligence
+# + spell.power (see _calculate_heal). No defense applies. The cast
+# gesture is "channeling" — glow + hold, NO lunge (healing isn't an
+# attack), then the glow fades as the heal lands. Targets can be the
+# player (the usual case) or an enemy (allowed, like beneficial items).
+func _apply_spell_heal(spell: Spell, target_is_player: bool, target_enemy: BattleEnemy) -> void:
+	# Popup color: spell's own override, or the green heal default.
+	var popup_color: Color = spell.popup_color
+	if popup_color == Color.WHITE:
+		popup_color = HEAL_HP_POPUP_COLOR
+	var glow_color := Color(
+		popup_color.r * CAST_GLOW_INTENSITY,
+		popup_color.g * CAST_GLOW_INTENSITY,
+		popup_color.b * CAST_GLOW_INTENSITY,
+		1.0)
+
+	# Channeling gesture: glow + hold, then fade. No lunge for heals.
+	await _cast_glow_to(glow_color)
+	await get_tree().create_timer(CAST_GLOW_HOLD_DURATION).timeout
+	_cast_glow_to(Color.WHITE)
+
+	var heal: int = _calculate_heal(
+		RPGState.get_effective_intelligence(),
+		spell.power)
+
+	if target_is_player:
+		var max_hp: int = RPGState.get_effective_max_hp()
+		var before: int = RPGState.hp
+		RPGState.hp = mini(RPGState.hp + heal, max_hp)
+		var actual: int = RPGState.hp - before
+		RPGState.stats_changed.emit()
+		battle_ui.update_player_hp(RPGState.hp)
+		DamagePopup.spawn_status(
+			self, player_sprite.global_position + POPUP_OFFSET,
+			actual, popup_color)
+		return
+	# Healing an enemy (allowed, niche). Cap at the enemy's max HP.
+	var before: int = target_enemy.hp
+	target_enemy.hp = mini(target_enemy.hp + heal, target_enemy.max_hp)
+	var actual: int = target_enemy.hp - before
+	_animate_enemy_hp(target_enemy, target_enemy.hp)
+	DamagePopup.spawn_status(
+		self, target_enemy.sprite.global_position + POPUP_OFFSET,
+		actual, popup_color)
+
+
+# Computes a heal amount: (Intelligence + Power) × SPELL_HEAL_COEFFICIENT,
+# with random variance only. Heals do NOT crit — a crit-heal would make
+# healing swingy in a way that's hard to plan around, so the luck stat
+# stays a damage/offense concern. Floored at 1 so a heal always
+# restores something.
+func _calculate_heal(stat: int, power: int) -> int:
+	var base: float = float(stat + power) * SPELL_HEAL_COEFFICIENT
+	var random_mult: float = randf_range(RANDOM_LOW, RANDOM_HIGH)
+	return maxi(1, int(base * random_mult))
 
 
 # Each living enemy takes a turn in left-to-right order. Within a single

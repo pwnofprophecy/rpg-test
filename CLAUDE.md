@@ -235,8 +235,8 @@ Spells are MP-fueled abilities the Hero can cast in battle via the "Magic" actio
 
 **`Spell` Resource shape** (`resources/spell.gd`):
 - `spell_name`, `description`, `mp_cost`
-- `effect_kind: EffectKind` enum (DAMAGE / HEAL_HP / CURE_STATUS — last two are reserved but not yet wired)
-- `power: int` — bonus added onto Intelligence in the damage formula (same role weapon `power_bonus` plays for physical attacks)
+- `effect_kind: EffectKind` enum: **DAMAGE** and **HEAL_HP** are implemented; **CURE_STATUS** is reserved (still a no-op placeholder)
+- `power: int` — for DAMAGE, bonus added onto Intelligence in the damage formula (same role weapon `power_bonus` plays for physical attacks). For HEAL_HP, added to Intelligence in the heal formula.
 - `status_name: String` — for future CURE_STATUS spells
 - `popup_color: Color` — per-spell damage popup tint so each spell reads distinctly (Firebolt orange, future ice spells blue, etc.). Default white falls back to `MAGIC_DAMAGE_DEFAULT_COLOR` (magenta) in `battle.gd`.
 
@@ -248,6 +248,12 @@ Damage = max(1, floor(RawDamage))
 ```
 Crit still rolls off `luck × 1%`. Magic damage uses `RPGState.get_effective_intelligence()` so equipment intelligence bonuses apply.
 
+**Heal formula for HEAL_HP spells** — no defense applies (you don't resist a heal), and **heals do NOT crit** (keeps healing predictable; luck stays an offense stat):
+```
+Heal = max(1, floor((Intelligence + spell.power) × SPELL_HEAL_COEFFICIENT × Random))
+```
+`SPELL_HEAL_COEFFICIENT` defaults to 2.0 in `battle.gd`. Only the random variance (`RANDOM_LOW..RANDOM_HIGH`) applies. HEAL_HP spells default-target the player (overridable to an enemy). The cast gesture is "channeling" — glow + hold, no lunge — since healing isn't an attack. Heals are computed in `_calculate_heal` / applied in `_apply_spell_heal`.
+
 **MP scaling**: Max MP is purely derived from Intelligence via the formula `intelligence × MP_PER_INT_LEVEL + equipment.mp_bonus`. The constant lives on `RPGState` and defaults to 2 (i.e. 2 MP per Intelligence point). The `max_mp` field is still present in `HeroStats` / `RPGState` but is no longer consulted by `get_effective_max_mp()` — it's left in the Resource shape in case a future class system wants a flat per-class MP cap on top of the Int scaling.
 
 **Battle flow when player picks Magic**:
@@ -258,8 +264,8 @@ Crit still rolls off `luck × 1%`. Magic damage uses `RPGState.get_effective_int
    - **Sufficient MP**: stashed as `_pending_spell` → `TARGET_SELECT` (cursor defaults per `effect_kind` — damage spells go to first living enemy, future heals would go to player)
 4. Player confirms target → status tick → `_use_spell(spell, target_idx)`:
    - Pays MP up-front (even if effect is no-op like curing a non-existent status)
-   - Runs effect via `_apply_spell_damage` for DAMAGE; reserved branches placeholder for HEAL_HP / CURE_STATUS
-   - Plays popup + hit effect + camera shake; crits screen-flash like physical attacks
+   - Runs effect via `_apply_spell_damage` for DAMAGE or `_apply_spell_heal` for HEAL_HP; CURE_STATUS is still a placeholder
+   - Plays popup + cast gesture; damage spells lunge + camera shake (crits screen-flash), heal spells channel in place
    - Transitions to ENEMY_TURN (or WIN/LOSE)
 
 **Cancel routing**: cancelling TARGET_SELECT during spell targeting returns to MAGIC_SELECT (pick a different spell). Cancelling MAGIC_SELECT returns to PLAYER_MENU. Status tick has not fired yet at either cancel point, so backing out is free (matches the item flow).
