@@ -42,16 +42,26 @@ signal magic_canceled
 # the named node. These paths match the node names in battle.tscn.
 @onready var text_label: Label = $TextBox/MarginContainer/TextLabel
 @onready var menu_box: PanelContainer = $MenuBox
-@onready var player_hp_bar: ProgressBar = $PlayerHealthBar/HPBar
+# Player stat widgets live under PlayerStatusArea (a PanelContainer
+# providing the background) → Stats (the VBoxContainer holding the
+# rows). Enemy bars are still the .tscn's single EnemyHealthBar (the
+# per-enemy bars in multi-enemy fights are built programmatically in
+# battle.gd).
+@onready var player_hp_bar: ProgressBar = $PlayerStatusArea/Stats/HPBar
 @onready var enemy_hp_bar: ProgressBar = $EnemyHealthBar/HPBar
-@onready var player_name_label: Label = $PlayerHealthBar/NameLabel
+@onready var player_name_label: Label = $PlayerStatusArea/Stats/NameLabel
 @onready var enemy_name_label: Label = $EnemyHealthBar/NameLabel
 # Optional "current / max" text overlays on the HP bars. Wrapped in
 # has_node so the script keeps working if you haven't added the labels
 # to the scene yet — they just stay null and the update calls below
 # silently skip the text update.
-@onready var player_hp_text: Label = $PlayerHealthBar/HPBar/HPText if has_node("PlayerHealthBar/HPBar/HPText") else null
+@onready var player_hp_text: Label = $PlayerStatusArea/Stats/HPBar/HPText if has_node("PlayerStatusArea/Stats/HPBar/HPText") else null
 @onready var enemy_hp_text: Label = $EnemyHealthBar/HPBar/HPText if has_node("EnemyHealthBar/HPBar/HPText") else null
+# Player mana bar + optional "current / max" text overlay. Both
+# has_node-guarded so the battle still runs if you haven't added the
+# MP bar to the scene yet — the MP update calls below just no-op.
+@onready var player_mp_bar: ProgressBar = $PlayerStatusArea/Stats/MPBar if has_node("PlayerStatusArea/Stats/MPBar") else null
+@onready var player_mp_text: Label = $PlayerStatusArea/Stats/MPBar/MPText if has_node("PlayerStatusArea/Stats/MPBar/MPText") else null
 
 # Status text labels appended below each HP bar at runtime in _ready.
 # Show comma-separated active status names like "[Poisoned]" — empty/
@@ -155,7 +165,8 @@ func _ready() -> void:
 	var pass_through: Array = [
 		$TextBox,
 		$TextBox/MarginContainer,
-		$PlayerHealthBar,
+		$PlayerStatusArea,
+		$PlayerStatusArea/Stats,
 		$EnemyHealthBar,
 		player_hp_bar,
 		enemy_hp_bar,
@@ -164,12 +175,23 @@ func _ready() -> void:
 		(ctrl as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	# Build status labels programmatically and tuck them inside the
-	# existing HealthBar VBoxContainers below the HPBar. Hidden by
-	# default; battle.gd calls set_*_statuses() to show them.
+	# stat VBoxContainers below the bars. Hidden by default; battle.gd
+	# calls set_*_statuses() to show them.
 	player_status_label = _make_status_label()
-	$PlayerHealthBar.add_child(player_status_label)
+	# Center the player's status text within the status area to match
+	# the centered name above it. The label fills the container width
+	# (default VBox Fill sizing), so HORIZONTAL_ALIGNMENT_CENTER puts
+	# the text in the middle. The enemy status label is left as-is.
+	player_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	$PlayerStatusArea/Stats.add_child(player_status_label)
 	enemy_status_label = _make_status_label()
 	$EnemyHealthBar.add_child(enemy_status_label)
+
+	# Hide the player status panel until the command menu first appears
+	# (show_menu reveals it). This keeps it from showing during the
+	# intro "Enemy appeared!" banner, so the panel and command menu
+	# arrive together once the intro clears.
+	$PlayerStatusArea.visible = false
 
 
 # Builds a styled Label used for showing a combatant's active status
@@ -423,6 +445,56 @@ func set_enemy_max_hp(max_value: int) -> void:
 	_refresh_hp_text(enemy_hp_text, enemy_hp_bar)
 
 
+# --- Player MP bar ---
+# Mirrors the HP bar methods but for mana. No green/yellow/red color
+# coding — the MP bar's fill color is set once in the .tscn (blue) and
+# stays constant. All three methods no-op gracefully if the MP bar
+# hasn't been added to the scene yet.
+
+# Sets the MP bar maximum. Call before update_player_mp on first setup.
+func set_player_max_mp(max_value: int) -> void:
+	if player_mp_bar == null:
+		return
+	player_mp_bar.max_value = max_value
+	_refresh_mp_text()
+
+
+# Updates the MP bar to `value`. Animates a smooth drain by default
+# (e.g. when a spell is cast); pass animate = false for the initial
+# battle-start snap.
+func update_player_mp(value: int, animate: bool = true) -> void:
+	if player_mp_bar == null:
+		return
+	if animate:
+		_animate_mp_bar(value)
+	else:
+		player_mp_bar.value = value
+		_refresh_mp_text()
+
+
+# Tweens the MP bar value + text overlay, mirroring _animate_hp_bar
+# but without the color recalc (MP bar color is constant).
+func _animate_mp_bar(target_value: int) -> void:
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(player_mp_bar, "value", target_value, HP_DRAIN_DURATION)
+	if player_mp_text != null:
+		var start: int = int(player_mp_bar.value)
+		var bar_max: int = int(player_mp_bar.max_value)
+		tween.tween_method(
+			func(v: int) -> void:
+				player_mp_text.text = "%d / %d" % [v, bar_max],
+			start, target_value, HP_DRAIN_DURATION)
+
+
+# Updates the MP text overlay to "current / max". No-op when the bar
+# or label is absent.
+func _refresh_mp_text() -> void:
+	if player_mp_text == null or player_mp_bar == null:
+		return
+	player_mp_text.text = "%d / %d" % [int(player_mp_bar.value), int(player_mp_bar.max_value)]
+
+
 # Updates an HP text overlay to read "current / max". No-op when the
 # label is null (i.e. the .tscn doesn't have one yet).
 func _refresh_hp_text(label: Label, bar: ProgressBar) -> void:
@@ -472,6 +544,12 @@ func show_menu() -> void:
 	menu_active = true
 	cursor_index = 0
 	_update_cursor()
+	# Reveal the player status panel alongside the command menu. It
+	# starts hidden (see _ready) so it doesn't pop in during the intro
+	# "Enemy appeared!" banner before the menu exists. Once shown it
+	# stays visible — hide_menu() only hides the command menu, not the
+	# status panel — so the stats persist through attacks/animations.
+	$PlayerStatusArea.visible = true
 
 
 # Hides the action menu and disables keyboard navigation.

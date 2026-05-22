@@ -39,6 +39,11 @@ const MP_PER_INT_LEVEL: int = 2
 # character_name starts empty as a sentinel for "haven't done name entry
 # yet" — rpg_overworld checks this on _ready to decide whether to show the
 # name entry screen. reset_from_template() fills it from the template.
+#
+# IMPORTANT: this stays "" until the player submits a name. Don't read
+# it directly for DISPLAY — use get_display_name() so un-named contexts
+# (the combat sandbox, anything entered before RPG name entry) still
+# show a sensible fallback name instead of a blank.
 var character_name: String = ""
 
 var max_hp: int = 0
@@ -196,6 +201,21 @@ func clear_statuses() -> void:
 		return
 	status_effects.clear()
 	stats_changed.emit()
+
+
+# Returns the name to DISPLAY for the Hero. Falls back to the template's
+# default name when character_name is still the "" sentinel (e.g. in the
+# combat sandbox before the player has gone through RPG name entry). The
+# raw character_name field stays "" so the name-entry sentinel still
+# works — only display code reads through this.
+func get_display_name() -> String:
+	if character_name != "":
+		return character_name
+	var t: HeroStats = _TEMPLATE as HeroStats
+	if t != null and t.character_name != "":
+		return t.character_name
+	# Ultimate fallback if the template somehow has no name.
+	return "Hero"
 
 
 # --- Equipment helpers ---

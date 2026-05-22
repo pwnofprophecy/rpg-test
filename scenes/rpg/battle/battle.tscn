@@ -5,6 +5,9 @@
 [ext_resource type="Texture2D" uid="uid://6nhjmtfcu3l" path="res://assets/sprites/player_back.svg" id="3"]
 [ext_resource type="Texture2D" uid="uid://f8udcxg2fwct" path="res://assets/sprites/enemy_placeholder.svg" id="4"]
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_d8x32"]
+bg_color = Color(0.22745098, 0.43137255, 0.9411765, 1)
+
 [node name="Battle" type="Node2D" unique_id=335743338]
 script = ExtResource("1")
 
@@ -26,25 +29,52 @@ texture = ExtResource("4")
 [node name="BattleUI" type="CanvasLayer" parent="." unique_id=1051565881]
 script = ExtResource("2")
 
-[node name="PlayerHealthBar" type="VBoxContainer" parent="BattleUI" unique_id=2036140899]
-offset_left = 300.0
-offset_top = 340.0
-offset_right = 500.0
-offset_bottom = 400.0
+[node name="PlayerStatusArea" type="PanelContainer" parent="BattleUI" unique_id=379120732]
+offset_left = 520.0
+offset_top = 500.0
+offset_right = 740.0
+offset_bottom = 630.0
 
-[node name="NameLabel" type="Label" parent="BattleUI/PlayerHealthBar" unique_id=851845114]
+[node name="Stats" type="VBoxContainer" parent="BattleUI/PlayerStatusArea" unique_id=2036140899]
+layout_mode = 2
+
+[node name="NameLabel" type="Label" parent="BattleUI/PlayerStatusArea/Stats" unique_id=851845114]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "HERO"
+horizontal_alignment = 1
 
-[node name="HPBar" type="ProgressBar" parent="BattleUI/PlayerHealthBar" unique_id=295305002]
+[node name="HPBar" type="ProgressBar" parent="BattleUI/PlayerStatusArea/Stats" unique_id=295305002]
 custom_minimum_size = Vector2(200, 20)
 layout_mode = 2
+size_flags_horizontal = 4
 max_value = 10.0
 value = 10.0
 show_percentage = false
 
-[node name="HPText" type="Label" parent="BattleUI/PlayerHealthBar/HPBar" unique_id=2048847736]
+[node name="HPText" type="Label" parent="BattleUI/PlayerStatusArea/Stats/HPBar" unique_id=2048847736]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MPBar" type="ProgressBar" parent="BattleUI/PlayerStatusArea/Stats" unique_id=277752714]
+custom_minimum_size = Vector2(200, 16)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_styles/fill = SubResource("StyleBoxFlat_d8x32")
+max_value = 10.0
+value = 10.0
+show_percentage = false
+
+[node name="MPText" type="Label" parent="BattleUI/PlayerStatusArea/Stats/MPBar" unique_id=778613763]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -89,13 +119,10 @@ horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="TextBox" type="PanelContainer" parent="BattleUI" unique_id=96453473]
-anchors_preset = 12
-anchor_top = 1.0
+anchors_preset = 10
 anchor_right = 1.0
-anchor_bottom = 1.0
-offset_top = -160.0
+offset_bottom = 64.0
 grow_horizontal = 2
-grow_vertical = 0
 
 [node name="MarginContainer" type="MarginContainer" parent="BattleUI/TextBox" unique_id=1741383129]
 layout_mode = 2
@@ -107,6 +134,7 @@ theme_override_constants/margin_bottom = 15
 [node name="TextLabel" type="Label" parent="BattleUI/TextBox/MarginContainer" unique_id=102270201]
 layout_mode = 2
 theme_override_font_sizes/font_size = 22
+horizontal_alignment = 1
 autowrap_mode = 2
 
 [node name="MenuBox" type="PanelContainer" parent="BattleUI" unique_id=1009088882]

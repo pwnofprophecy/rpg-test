@@ -237,6 +237,24 @@ const LUNGE_DISTANCE: float = 50.0
 const LUNGE_FORWARD_DURATION: float = 0.15
 const LUNGE_RETURN_DURATION: float = 0.20
 
+# --- Item-use hop tuning ---
+# When the player uses an item, the sprite hops up by ITEM_HOP_HEIGHT
+# pixels and settles back. Up is snappy (ease-out), down is a touch
+# slower with an ease-in for a natural "settle".
+const ITEM_HOP_HEIGHT: float = 30.0
+const ITEM_HOP_UP_DURATION: float = 0.12
+const ITEM_HOP_DOWN_DURATION: float = 0.18
+
+# --- Spell cast gesture tuning ---
+# Casting a spell glows the player sprite the spell's color, holds,
+# then lunges. CAST_GLOW_INTENSITY multiplies the spell's popup color
+# to brighten it into a "glow" (modulate can exceed 1.0 for an
+# over-bright effect). The fade duration applies to both glow-on and
+# glow-off; the hold is the charged pause before the lunge.
+const CAST_GLOW_INTENSITY: float = 1.6
+const CAST_GLOW_FADE_DURATION: float = 0.2
+const CAST_GLOW_HOLD_DURATION: float = 0.4
+
 # --- Hit effect tuning (flash + shake on the defender) ---
 # Color tint applied during the flash. Saturated red over white texture
 # reads as "ouch" without needing a shader. Brief duration so it doesn't
@@ -326,9 +344,13 @@ func _ready() -> void:
 	# the bar at battle start. `false` = no drain animation on first
 	# display; just snap to the correct value, otherwise the bar would
 	# visibly tween from the .tscn placeholder up to the real value.
-	battle_ui.set_player_name(RPGState.character_name)
+	battle_ui.set_player_name(RPGState.get_display_name())
 	battle_ui.set_player_max_hp(RPGState.get_effective_max_hp())
 	battle_ui.update_player_hp(RPGState.hp, false)
+	# Player MP bar — max derived from Intelligence, current from
+	# RPGState. Snap (no animation) on first display, same as HP.
+	battle_ui.set_player_max_mp(RPGState.get_effective_max_mp())
+	battle_ui.update_player_mp(RPGState.mp, false)
 	battle_ui.set_player_statuses(RPGState.status_effects)
 
 	# Refresh the player's status label whenever RPGState mutates
@@ -1122,17 +1144,29 @@ func _run_intro() -> void:
 func _format_intro_message() -> String:
 	if _enemies.is_empty():
 		return "Battle start!"
+	# Title-case EACH enemy name ("GOBLIN" -> "Goblin") so every entry
+	# in the list reads consistently. The previous version only ran
+	# capitalize() on the leading portion of the joined string, which
+	# left the final name in its raw uppercase ("...and a GOBLIN
+	# appeared!") and also wrongly capitalized the inner "a" articles.
 	var names: Array[String] = []
 	for be_var in _enemies:
-		var be: BattleEnemy = be_var
-		names.append("a " + be.name)
+		names.append("a " + (be_var as BattleEnemy).name.capitalize())
+
+	var list_text: String
 	if names.size() == 1:
-		return "%s appeared!" % names[0].capitalize()
-	if names.size() == 2:
-		return "%s and %s appeared!" % [names[0].capitalize(), names[1]]
-	# 3+: comma-separated, last joined with "and".
-	var head: String = ", ".join(names.slice(0, names.size() - 1))
-	return "%s and %s appeared!" % [head.capitalize(), names[-1]]
+		list_text = names[0]
+	elif names.size() == 2:
+		list_text = "%s and %s" % [names[0], names[1]]
+	else:
+		# 3+: comma-separated, last joined with "and".
+		var head: String = ", ".join(names.slice(0, names.size() - 1))
+		list_text = "%s and %s" % [head, names[-1]]
+
+	# Capitalize only the FIRST letter of the whole sentence (the leading
+	# "a" -> "A"), leaving the inner articles lowercase for correct grammar.
+	var sentence: String = "%s appeared!" % list_text
+	return sentence.substr(0, 1).to_upper() + sentence.substr(1)
 
 
 # Shows the action menu and prompts the player to choose what to do.
@@ -1235,10 +1269,9 @@ func _run_player_attack() -> void:
 
 	_lunge_back(player_sprite)
 
-	var msg: String = "%s attacks %s!" % [RPGState.character_name, target.name]
-	if is_crit:
-		msg += " Critical hit!"
-	battle_ui.set_message(msg)
+	# Simple text — the damage number and crit are conveyed by the
+	# floating popup (gold + larger on crit), not the message box.
+	battle_ui.set_message("%s attacks!" % RPGState.get_display_name())
 
 	# Mark the target as defeated (dim sprite, hide bar) if they hit 0
 	# so the read pause shows the death visually.
@@ -1306,7 +1339,6 @@ func _use_item(item: Item, target_idx: int) -> void:
 		_change_state(BattleState.ENEMY_TURN)
 		return
 
-	var msg: String = ""
 	var target_is_player: bool = (target_idx == TARGET_INDEX_PLAYER)
 	var target_enemy: BattleEnemy = null
 	if not target_is_player:
@@ -1317,20 +1349,36 @@ func _use_item(item: Item, target_idx: int) -> void:
 			return
 		target_enemy = _enemies[target_idx]
 
+	# "Use item" gesture: the player hops up. We await the upward part
+	# so the effect (popup, heal, etc.) lands at the apex of the hop,
+	# then start the descent in parallel with the effect display below.
+	await _item_hop_up()
+
+	# The handlers apply the effect (popup, HP/MP change, status cure)
+	# but their returned message strings are no longer shown — the text
+	# box uses the simple "uses X" line set below.
 	match item.effect_kind:
 		Item.EffectKind.HEAL_HP:
-			msg = await _apply_item_heal_hp(item, target_is_player, target_enemy)
+			await _apply_item_heal_hp(item, target_is_player, target_enemy)
 		Item.EffectKind.HEAL_MP:
-			msg = _apply_item_heal_mp(item, target_is_player)
+			_apply_item_heal_mp(item, target_is_player)
 		Item.EffectKind.CURE_STATUS:
-			msg = _apply_item_cure_status(item, target_is_player, target_enemy)
+			_apply_item_cure_status(item, target_is_player, target_enemy)
 		Item.EffectKind.DAMAGE_FIXED:
-			msg = await _apply_item_damage(item, target_is_player, target_enemy)
+			await _apply_item_damage(item, target_is_player, target_enemy)
+
+	# Bring the player back down — fire-and-forget so the descent
+	# overlaps the message read pause below.
+	_item_hop_down()
 
 	# Consume one of the item.
 	RPGState.remove_from_inventory(item, 1)
 
-	battle_ui.set_message(msg)
+	# Simple, uniform message regardless of effect. The handlers above
+	# still ran the actual effect + popup; we just don't surface the
+	# numbers/result in the text box. `msg` from the handler is
+	# discarded in favor of this clean line.
+	battle_ui.set_message("%s uses %s" % [RPGState.get_display_name(), item.item_name])
 	await get_tree().create_timer(1.2).timeout
 
 	# Item use can end the fight in either direction.
@@ -1358,7 +1406,7 @@ func _apply_item_heal_hp(item: Item, target_is_player: bool, target_enemy: Battl
 			self, player_sprite.global_position + POPUP_OFFSET,
 			actual, HEAL_HP_POPUP_COLOR)
 		return "%s used %s and recovered %d HP!" % [
-			RPGState.character_name, item.item_name, actual]
+			RPGState.get_display_name(), item.item_name, actual]
 	# Heal on enemy.
 	var before: int = target_enemy.hp
 	target_enemy.hp = mini(target_enemy.hp + item.amount, target_enemy.max_hp)
@@ -1368,7 +1416,7 @@ func _apply_item_heal_hp(item: Item, target_is_player: bool, target_enemy: Battl
 		self, target_enemy.sprite.global_position + POPUP_OFFSET,
 		actual, HEAL_HP_POPUP_COLOR)
 	return "%s used %s on %s. Recovered %d HP." % [
-		RPGState.character_name, item.item_name, target_enemy.name, actual]
+		RPGState.get_display_name(), item.item_name, target_enemy.name, actual]
 
 
 # Heal MP effect handler. Currently only meaningful on the player
@@ -1376,17 +1424,18 @@ func _apply_item_heal_hp(item: Item, target_is_player: bool, target_enemy: Battl
 func _apply_item_heal_mp(item: Item, target_is_player: bool) -> String:
 	if not target_is_player:
 		return "%s used %s — but it had no effect." % [
-			RPGState.character_name, item.item_name]
+			RPGState.get_display_name(), item.item_name]
 	var max_mp: int = RPGState.get_effective_max_mp()
 	var before: int = RPGState.mp
 	RPGState.mp = mini(RPGState.mp + item.amount, max_mp)
 	var actual: int = RPGState.mp - before
 	RPGState.stats_changed.emit()
+	battle_ui.update_player_mp(RPGState.mp)
 	DamagePopup.spawn_status(
 		self, player_sprite.global_position + POPUP_OFFSET,
 		actual, HEAL_MP_POPUP_COLOR)
 	return "%s used %s and recovered %d MP!" % [
-		RPGState.character_name, item.item_name, actual]
+		RPGState.get_display_name(), item.item_name, actual]
 
 
 # Cure status effect handler. Removes `status_name` from the target's
@@ -1395,22 +1444,22 @@ func _apply_item_heal_mp(item: Item, target_is_player: bool) -> String:
 func _apply_item_cure_status(item: Item, target_is_player: bool, target_enemy: BattleEnemy) -> String:
 	if item.status_name == "":
 		return "%s used %s — but it had no effect." % [
-			RPGState.character_name, item.item_name]
+			RPGState.get_display_name(), item.item_name]
 	if target_is_player:
 		if RPGState.has_status(item.status_name):
 			RPGState.remove_status(item.status_name)
 			return "%s used %s. %s cured!" % [
-				RPGState.character_name, item.item_name, item.status_name]
+				RPGState.get_display_name(), item.item_name, item.status_name]
 		return "%s used %s — but it had no effect." % [
-			RPGState.character_name, item.item_name]
+			RPGState.get_display_name(), item.item_name]
 	# Cure on enemy.
 	if target_enemy.statuses.has(item.status_name):
 		target_enemy.statuses.erase(item.status_name)
 		_refresh_enemy_status_label(target_enemy)
 		return "%s used %s on %s. %s cured!" % [
-			RPGState.character_name, item.item_name, target_enemy.name, item.status_name]
+			RPGState.get_display_name(), item.item_name, target_enemy.name, item.status_name]
 	return "%s used %s on %s — no effect." % [
-		RPGState.character_name, item.item_name, target_enemy.name]
+		RPGState.get_display_name(), item.item_name, target_enemy.name]
 
 
 # Fixed damage effect handler. No formula, no crit, no random roll —
@@ -1429,7 +1478,7 @@ func _apply_item_damage(item: Item, target_is_player: bool, target_enemy: Battle
 		_hit_effect(player_sprite)
 		_camera_shake(CAM_SHAKE_INTENSITY_NORMAL, CAM_SHAKE_DURATION)
 		return "%s used %s on themselves?! %d damage." % [
-			RPGState.character_name, item.item_name, damage]
+			RPGState.get_display_name(), item.item_name, damage]
 	# Damage on enemy.
 	target_enemy.hp = maxi(target_enemy.hp - damage, 0)
 	_animate_enemy_hp(target_enemy, target_enemy.hp)
@@ -1441,7 +1490,7 @@ func _apply_item_damage(item: Item, target_is_player: bool, target_enemy: Battle
 	if target_enemy.hp <= 0:
 		_mark_enemy_defeated(target_enemy)
 	return "%s used %s on %s! %d damage." % [
-		RPGState.character_name, item.item_name, target_enemy.name, damage]
+		RPGState.get_display_name(), item.item_name, target_enemy.name, damage]
 
 
 # Casts a spell at the given target. Mirrors _use_item's structure
@@ -1474,21 +1523,21 @@ func _use_spell(spell: Spell, target_idx: int) -> void:
 	# its MP — that matches classic JRPG behavior.
 	RPGState.mp = maxi(RPGState.mp - spell.mp_cost, 0)
 	RPGState.stats_changed.emit()
+	battle_ui.update_player_mp(RPGState.mp)
 
-	var msg: String = ""
+	# DAMAGE runs the cast gesture + applies damage; the reserved kinds
+	# are no-ops for now. The returned message is discarded in favor of
+	# the simple "casts X" line below.
 	match spell.effect_kind:
 		Spell.EffectKind.DAMAGE:
-			msg = _apply_spell_damage(spell, target_is_player, target_enemy)
+			await _apply_spell_damage(spell, target_is_player, target_enemy)
 		Spell.EffectKind.HEAL_HP:
-			# Reserved — not yet implemented. Show a placeholder.
-			msg = "%s cast %s. (HEAL_HP not implemented yet)" % [
-				RPGState.character_name, spell.spell_name]
+			pass  # Reserved — not yet implemented.
 		Spell.EffectKind.CURE_STATUS:
-			# Reserved — not yet implemented.
-			msg = "%s cast %s. (CURE_STATUS not implemented yet)" % [
-				RPGState.character_name, spell.spell_name]
+			pass  # Reserved — not yet implemented.
 
-	battle_ui.set_message(msg)
+	# Simple, uniform message.
+	battle_ui.set_message("%s casts %s" % [RPGState.get_display_name(), spell.spell_name])
 	await get_tree().create_timer(1.2).timeout
 
 	# Spell can end the fight in either direction.
@@ -1504,6 +1553,11 @@ func _use_spell(spell: Spell, target_idx: int) -> void:
 # INTELLIGENCE as the attacker stat (rather than attack). spell.power
 # stacks onto intelligence the same way a weapon's power_bonus stacks
 # onto attack. Crits still roll off luck.
+#
+# Cast gesture (async): the player sprite glows the spell's color,
+# holds for a beat, lunges toward the target, and THEN the glow fades
+# as the damage lands. Self-targeted damage spells skip the lunge
+# (lunging at yourself reads oddly) but still glow.
 func _apply_spell_damage(spell: Spell, target_is_player: bool, target_enemy: BattleEnemy) -> String:
 	# Decide popup color — spell's own override if non-white, otherwise
 	# the global magic-default magenta.
@@ -1511,9 +1565,29 @@ func _apply_spell_damage(spell: Spell, target_is_player: bool, target_enemy: Bat
 	if popup_color == Color.WHITE:
 		popup_color = MAGIC_DAMAGE_DEFAULT_COLOR
 
+	# Brightened version of the popup color used as the sprite glow.
+	# Boosting RGB above 1.0 reads as "glowing" rather than just tinted.
+	# Alpha forced to 1.0 so the boost doesn't make the sprite fade.
+	var glow_color := Color(
+		popup_color.r * CAST_GLOW_INTENSITY,
+		popup_color.g * CAST_GLOW_INTENSITY,
+		popup_color.b * CAST_GLOW_INTENSITY,
+		1.0)
+
+	# --- Cast gesture, phase 1: glow on + hold ---
+	await _cast_glow_to(glow_color)
+	await get_tree().create_timer(CAST_GLOW_HOLD_DURATION).timeout
+
+	# --- Phase 2: lunge toward the target (enemy only) ---
+	if not target_is_player:
+		await _lunge_at(player_sprite, target_enemy.sprite.global_position)
+
+	# --- Phase 3: glow fades while the damage lands ---
+	# Fire-and-forget the glow fade so it overlaps the damage display.
+	_cast_glow_to(Color.WHITE)
+
 	if target_is_player:
-		# Magic damage on self (e.g. testing). Use the player's own
-		# defense and luck.
+		# Magic damage on self. Use the player's own defense and luck.
 		var roll: Dictionary = _calculate_damage(
 			RPGState.get_effective_intelligence(),
 			spell.power,
@@ -1531,7 +1605,7 @@ func _apply_spell_damage(spell: Spell, target_is_player: bool, target_enemy: Bat
 		_camera_shake(CAM_SHAKE_INTENSITY_NORMAL, CAM_SHAKE_DURATION)
 		var crit_text: String = " Critical hit!" if is_crit else ""
 		return "%s cast %s on themselves! %d damage.%s" % [
-			RPGState.character_name, spell.spell_name, damage, crit_text]
+			RPGState.get_display_name(), spell.spell_name, damage, crit_text]
 
 	# Standard case: damage spell on an enemy.
 	var roll: Dictionary = _calculate_damage(
@@ -1552,11 +1626,14 @@ func _apply_spell_damage(spell: Spell, target_is_player: bool, target_enemy: Bat
 		CAM_SHAKE_DURATION)
 	if is_crit:
 		_screen_flash(SCREEN_FLASH_COLOR, SCREEN_FLASH_DURATION)
+	# Settle the player back from the lunge — fire-and-forget so it
+	# overlaps the post-cast message pause.
+	_lunge_back(player_sprite)
 	if target_enemy.hp <= 0:
 		_mark_enemy_defeated(target_enemy)
 	var crit_text: String = " Critical hit!" if is_crit else ""
 	return "%s cast %s on %s! %d damage.%s" % [
-		RPGState.character_name, spell.spell_name, target_enemy.name, damage, crit_text]
+		RPGState.get_display_name(), spell.spell_name, target_enemy.name, damage, crit_text]
 
 
 # Each living enemy takes a turn in left-to-right order. Within a single
@@ -1622,10 +1699,8 @@ func _take_enemy_turn(be: BattleEnemy) -> void:
 
 	_lunge_back(be.sprite)
 
-	var msg: String = "%s attacks!" % be.name
-	if is_crit:
-		msg += " Critical hit!"
-	battle_ui.set_message(msg)
+	# Simple text — damage / crit shown via the floating popup.
+	battle_ui.set_message("%s attacks!" % be.name)
 	await get_tree().create_timer(1.0).timeout
 
 
@@ -1679,24 +1754,11 @@ func _run_sub_menu() -> void:
 	battle_ui.set_message("Nothing here...")
 
 
-# Battle is over — player wins. Lists every defeated enemy by name so
-# multi-enemy fights read clearly. "GOBLIN was defeated!" for one,
-# "GOBLIN and SKELETON were defeated!" for two, "GOBLIN, SKELETON and
-# SLIME were defeated!" for three+.
+# Battle is over — player wins. A single fixed victory line regardless
+# of how many enemies were in the fight.
 func _run_win() -> void:
 	battle_ui.hide_menu()
-	var names: Array[String] = []
-	for be_var in _enemies:
-		names.append((be_var as BattleEnemy).name)
-	var msg: String
-	if names.size() == 1:
-		msg = "%s was defeated!" % names[0]
-	elif names.size() == 2:
-		msg = "%s and %s were defeated!" % [names[0], names[1]]
-	else:
-		var head: String = ", ".join(names.slice(0, names.size() - 1))
-		msg = "%s and %s were defeated!" % [head, names[-1]]
-	battle_ui.set_message(msg)
+	battle_ui.set_message("Victory is yours!")
 
 
 # Battle is over — player loses. Shows the death message and waits for
@@ -1704,7 +1766,7 @@ func _run_win() -> void:
 # and the return-to-overworld transition.
 func _run_lose() -> void:
 	battle_ui.hide_menu()
-	battle_ui.set_message("%s has died." % RPGState.character_name)
+	battle_ui.set_message("%s has died." % RPGState.get_display_name())
 
 
 # Player chose Run and got away. Shows the escape message and waits for
@@ -1756,6 +1818,52 @@ func _lunge_back(attacker: Node2D) -> void:
 	tween.tween_property(attacker, "position", origin, LUNGE_RETURN_DURATION) \
 		.set_trans(Tween.TRANS_CUBIC) \
 		.set_ease(Tween.EASE_IN)
+
+
+# Hops the player sprite up by ITEM_HOP_HEIGHT — the first half of the
+# "use item" gesture. Awaited by _use_item so the item effect lands at
+# the apex. Uses the same set_meta("origin") rest-position pattern as
+# the lunge so the sprite always returns to its true home even if it
+# hasn't lunged yet this battle.
+func _item_hop_up() -> void:
+	if player_sprite == null:
+		return
+	if not player_sprite.has_meta("origin"):
+		player_sprite.set_meta("origin", player_sprite.position)
+	var origin: Vector2 = player_sprite.get_meta("origin")
+	# Negative Y = upward in screen space.
+	var top: Vector2 = origin - Vector2(0, ITEM_HOP_HEIGHT)
+	var tween := create_tween()
+	tween.tween_property(player_sprite, "position", top, ITEM_HOP_UP_DURATION) \
+		.set_trans(Tween.TRANS_QUAD) \
+		.set_ease(Tween.EASE_OUT)
+	await tween.finished
+
+
+# Settles the player sprite back down to its rest position — the
+# second half of the "use item" gesture. Fire-and-forget so the
+# descent overlaps the post-item message pause.
+func _item_hop_down() -> void:
+	if player_sprite == null or not player_sprite.has_meta("origin"):
+		return
+	var origin: Vector2 = player_sprite.get_meta("origin")
+	var tween := create_tween()
+	tween.tween_property(player_sprite, "position", origin, ITEM_HOP_DOWN_DURATION) \
+		.set_trans(Tween.TRANS_QUAD) \
+		.set_ease(Tween.EASE_IN)
+
+
+# Tweens the player sprite's modulate to `color` over CAST_GLOW_FADE_DURATION.
+# Used by the spell cast gesture: await it with the bright glow color
+# to "charge up", then call it fire-and-forget with Color.WHITE to fade
+# the glow as the spell lands. Independent of position tweens (lunge),
+# so glow + lunge can run simultaneously.
+func _cast_glow_to(color: Color) -> void:
+	if player_sprite == null:
+		return
+	var tween := create_tween()
+	tween.tween_property(player_sprite, "modulate", color, CAST_GLOW_FADE_DURATION)
+	await tween.finished
 
 
 # Plays the "got hit" visual on a defender: a brief red tint flash plus
@@ -1902,7 +2010,7 @@ func _tick_poison_player() -> void:
 		damage,
 		POISON_POPUP_COLOR)
 	battle_ui.update_player_hp(RPGState.hp)
-	battle_ui.set_message("%s is hurt by poison!" % RPGState.character_name)
+	battle_ui.set_message("%s is hurt by poison!" % RPGState.get_display_name())
 	await get_tree().create_timer(STATUS_TICK_PAUSE).timeout
 
 
