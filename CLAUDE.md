@@ -230,6 +230,44 @@ The status display in battle is a small purple `[Status1, Status2]` label — un
 
 The combat sandbox auto-bounces a status checkbox back to false when an immunity blocks the toggle (player or enemy side), and filters out incompatible statuses when switching enemies in the dropdown — so you always see what's actually going to apply.
 
+## Magic System
+Spells are MP-fueled abilities the Hero can cast in battle via the "Magic" action menu (formerly "Cast"). Each spell is a `Spell` Resource `.tres` file in `res://resources/spells/`, auto-discovered by `battle.gd` at battle start.
+
+**`Spell` Resource shape** (`resources/spell.gd`):
+- `spell_name`, `description`, `mp_cost`
+- `effect_kind: EffectKind` enum (DAMAGE / HEAL_HP / CURE_STATUS — last two are reserved but not yet wired)
+- `power: int` — bonus added onto Intelligence in the damage formula (same role weapon `power_bonus` plays for physical attacks)
+- `status_name: String` — for future CURE_STATUS spells
+- `popup_color: Color` — per-spell damage popup tint so each spell reads distinctly (Firebolt orange, future ice spells blue, etc.). Default white falls back to `MAGIC_DAMAGE_DEFAULT_COLOR` (magenta) in `battle.gd`.
+
+**Damage formula for magic** — same shape as physical damage, just substitute Intelligence for Attack:
+```
+EffectiveAttack = Intelligence + spell.power
+RawDamage = (2 × EffectiveAttack / D + 2) × Critical × Random
+Damage = max(1, floor(RawDamage))
+```
+Crit still rolls off `luck × 1%`. Magic damage uses `RPGState.get_effective_intelligence()` so equipment intelligence bonuses apply.
+
+**MP scaling**: Max MP is purely derived from Intelligence via the formula `intelligence × MP_PER_INT_LEVEL + equipment.mp_bonus`. The constant lives on `RPGState` and defaults to 2 (i.e. 2 MP per Intelligence point). The `max_mp` field is still present in `HeroStats` / `RPGState` but is no longer consulted by `get_effective_max_mp()` — it's left in the Resource shape in case a future class system wants a flat per-class MP cap on top of the Int scaling.
+
+**Battle flow when player picks Magic**:
+1. `_on_action_selected("magic")` → `MAGIC_SELECT` state
+2. `battle_ui.show_magic_menu(_available_spells, RPGState.mp)` renders the list with MP costs; spells the player can't afford are visually dimmed
+3. Player picks a spell:
+   - **Insufficient MP**: rejected with "Not enough MP!" message; menu stays open
+   - **Sufficient MP**: stashed as `_pending_spell` → `TARGET_SELECT` (cursor defaults per `effect_kind` — damage spells go to first living enemy, future heals would go to player)
+4. Player confirms target → status tick → `_use_spell(spell, target_idx)`:
+   - Pays MP up-front (even if effect is no-op like curing a non-existent status)
+   - Runs effect via `_apply_spell_damage` for DAMAGE; reserved branches placeholder for HEAL_HP / CURE_STATUS
+   - Plays popup + hit effect + camera shake; crits screen-flash like physical attacks
+   - Transitions to ENEMY_TURN (or WIN/LOSE)
+
+**Cancel routing**: cancelling TARGET_SELECT during spell targeting returns to MAGIC_SELECT (pick a different spell). Cancelling MAGIC_SELECT returns to PLAYER_MENU. Status tick has not fired yet at either cancel point, so backing out is free (matches the item flow).
+
+**Adding a new spell**: drop a `.tres` into `res://resources/spells/`, fill in Inspector fields. Auto-discovered next battle. No code changes for DAMAGE spells; HEAL_HP / CURE_STATUS need a match arm in `_use_spell` before the placeholder message goes away.
+
+**Sandbox Max MP display**: the sandbox doesn't have a Max MP SpinBox (since it's purely derived). Instead there's a read-only "Max MP (derived): N" Label under the editable stats that updates via `stats_changed` when Intelligence or equipment changes.
+
 ## Item System
 Items are consumable resources the Hero carries in inventory. Each item is an `Item` Resource `.tres` file in `res://resources/items/`. The sandbox auto-discovers them like enemies and equipment.
 

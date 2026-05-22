@@ -29,6 +29,12 @@ extends Node
 # The template Resource that seeds a fresh Hero. Edited in the Inspector.
 const _TEMPLATE: Resource = preload("res://resources/hero_stats.tres")
 
+# How many MP each point of Intelligence grants. Max MP is derived
+# entirely from Intelligence (+ equipment) — the old max_mp base is
+# left in the Resource shape but is no longer used in the effective
+# formula. Tuning this knob globally rescales all spellcasting capacity.
+const MP_PER_INT_LEVEL: int = 2
+
 # --- Runtime state (mutated during play) ---
 # character_name starts empty as a sentinel for "haven't done name entry
 # yet" — rpg_overworld checks this on _ready to decide whether to show the
@@ -126,8 +132,11 @@ func _seed_from_template(include_name: bool) -> void:
 		inventory.clear()
 	max_hp = t.max_hp
 	hp = t.max_hp
+	# max_mp is left in the Resource for legacy / future use but no
+	# longer drives effective max MP — see get_effective_max_mp(). For
+	# seeding current MP we use the derived effective max so the Hero
+	# starts with a full pool regardless of the .tres value.
 	max_mp = t.max_mp
-	mp = t.max_mp
 	attack = t.attack
 	defense = t.defense
 	speed = t.speed
@@ -140,6 +149,12 @@ func _seed_from_template(include_name: bool) -> void:
 	# Duplicate the array so runtime mutations don't leak back into the
 	# template Resource (Resources are shared by reference in Godot).
 	status_effects = t.status_effects.duplicate()
+
+	# Seed current MP from the derived effective max (intelligence has
+	# been assigned just above, so get_effective_max_mp returns the
+	# right value). Done AFTER all other fields are set so the lookup
+	# sees the freshly-seeded intelligence value.
+	mp = get_effective_max_mp()
 
 	stats_changed.emit()
 
@@ -245,7 +260,12 @@ func get_effective_max_hp() -> int:
 	return max_hp + _equipment_bonus("hp_bonus")
 
 func get_effective_max_mp() -> int:
-	return max_mp + _equipment_bonus("mp_bonus")
+	# Max MP is purely derived from Intelligence: 2 MP per point of
+	# Intelligence, plus any equipment mp_bonus on top. The HeroStats /
+	# RPGState `max_mp` field is no longer used as a base value (kept
+	# in the Resource for now in case a future class system wants to
+	# reintroduce a flat per-class MP cap on top of the Int scaling).
+	return intelligence * MP_PER_INT_LEVEL + _equipment_bonus("mp_bonus")
 
 func get_effective_attack() -> int:
 	return attack + _equipment_bonus("attack_bonus")

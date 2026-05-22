@@ -31,10 +31,11 @@ enum BattleState {
 	INTRO,          # The opening message ("A GOBLIN appeared!")
 	PLAYER_MENU,    # Waiting for the player to pick an action
 	ITEM_SELECT,    # Picking an item from the inventory list
-	TARGET_SELECT,  # Choosing the target of an attack or item
+	MAGIC_SELECT,   # Picking a spell from the magic list
+	TARGET_SELECT,  # Choosing the target of an attack / item / spell
 	PLAYER_ATTACK,  # The player's attack is being resolved
 	ENEMY_TURN,     # The enemy(s) are taking their turn(s)
-	SUB_MENU,       # Player opened Cast (currently a stub)
+	SUB_MENU,       # Placeholder state (was Cast; Cast is now MAGIC_SELECT)
 	WIN,            # All enemies defeated; waiting for player to confirm
 	LOSE,           # The player has been defeated; waiting for player to confirm
 	ESCAPE,         # The player ran away; waiting for confirm before returning
@@ -128,6 +129,17 @@ const TARGET_INDEX_PLAYER: int = -1
 # the item resolves (or on cancel back to the item menu).
 var _pending_item: Item = null
 
+# Same idea for spells — battle_ui's spell_selected hands the picked
+# Spell here, target select confirms the target, _use_spell runs the
+# effect. Cleared after the spell resolves (or on cancel).
+var _pending_spell: Spell = null
+
+# All Spells discovered in res://resources/spells/ at battle start.
+# For now every spell in the folder is castable by the player — no
+# "learnable spells" gate yet. Scanned once in _ready and cached for
+# the duration of the battle.
+var _available_spells: Array[Spell] = []
+
 # Tracks whether the player has already taken their per-turn status
 # tick (poison damage, etc.) this turn. Prevents double-ticking when
 # the player cancels out of a sub-menu (item menu, target select) and
@@ -166,6 +178,13 @@ const POPUP_OFFSET: Vector2 = Vector2(0, -90)
 const HEAL_HP_POPUP_COLOR: Color = Color(0.4, 1.0, 0.4)   # bright green
 const HEAL_MP_POPUP_COLOR: Color = Color(0.4, 0.6, 1.0)   # blue
 const ITEM_DAMAGE_POPUP_COLOR: Color = Color(1.0, 0.7, 0.3)  # orange (distinct from white attack)
+# Fallback popup color for magic damage when the Spell resource
+# itself doesn't override (Color.WHITE default in spell.gd).
+const MAGIC_DAMAGE_DEFAULT_COLOR: Color = Color(1.0, 0.4, 0.9)  # magenta
+
+# Folder we scan for spell templates at battle _ready. Drop a .tres in
+# here and it becomes castable next time a battle starts.
+const SPELLS_FOLDER: String = "res://resources/spells/"
 
 # --- Multi-enemy layout ---
 # Sprites lay out in a horizontal row centered on ENEMY_ROW_CENTER_X
@@ -330,10 +349,18 @@ func _ready() -> void:
 	# cancel returns to the action menu.
 	battle_ui.item_selected.connect(_on_item_selected)
 	battle_ui.item_canceled.connect(_on_item_canceled)
+	# Magic menu signals mirror the item ones — pick a spell → MP check
+	# → target select → cast. Cancel returns to action menu.
+	battle_ui.spell_selected.connect(_on_spell_selected)
+	battle_ui.magic_canceled.connect(_on_magic_canceled)
 	# Cancel button shown during TARGET_SELECT. Same code path as
 	# pressing Esc — call _cancel_target so the dispatch logic
 	# (back to item menu vs back to action menu) is centralized.
 	battle_ui.target_cancel_clicked.connect(_cancel_target)
+
+	# Scan available spells once at battle start. Cached for the
+	# duration so the Magic menu can pop instantly when opened.
+	_available_spells = _scan_spells_folder()
 
 	# Build the player-side target indicator (▼) and clickable Area2D
 	# so the player can be targeted by items the same way enemies are.
@@ -680,7 +707,8 @@ func _handle_target_select_input(event: InputEvent) -> void:
 
 # Confirm-target dispatcher. The status tick fires here (once per
 # turn) — this is the real "commit" point where the player can no
-# longer back out. Then dispatches to either item use or attack.
+# longer back out. Then dispatches to item use, spell cast, or
+# regular attack based on which pending action is set.
 func _confirm_target() -> void:
 	_clear_target_indicators()
 	battle_ui.hide_target_cancel_button()
@@ -691,10 +719,18 @@ func _confirm_target() -> void:
 	if RPGState.hp <= 0:
 		# Poison killed us. Whatever target was picked doesn't matter.
 		_pending_item = null
+		_pending_spell = null
 		_change_state(BattleState.LOSE)
 		return
 
-	if _pending_item != null:
+	if _pending_spell != null:
+		var spell: Spell = _pending_spell
+		_pending_spell = null
+		var target: int = _target_index
+		# Same two-click protection as items.
+		current_state = BattleState.PLAYER_ATTACK
+		await _use_spell(spell, target)
+	elif _pending_item != null:
 		var item: Item = _pending_item
 		_pending_item = null
 		var target: int = _target_index
@@ -709,11 +745,13 @@ func _confirm_target() -> void:
 		_change_state(BattleState.PLAYER_ATTACK)
 
 
-# Cancel-target dispatcher. With a pending item we go back to the
-# item menu (player can pick a different item). Without one, back
-# to the action menu. Status tick has NOT fired yet (we moved it
-# to _confirm_target), so cancelling is "free" — no poison damage
-# for backing out.
+# Cancel-target dispatcher. Routes back to whichever sub-menu was
+# active before targeting started:
+#   - pending item → back to item menu (pick a different item)
+#   - pending spell → back to magic menu (pick a different spell)
+#   - neither (regular attack) → back to the action menu
+# Status tick has NOT fired yet, so cancelling is "free" — no poison
+# damage for backing out.
 func _cancel_target() -> void:
 	# Guard against this firing when we're not actually in target
 	# select (e.g. the Cancel button is hidden but a stray signal
@@ -723,7 +761,10 @@ func _cancel_target() -> void:
 		return
 	_clear_target_indicators()
 	battle_ui.hide_target_cancel_button()
-	if _pending_item != null:
+	if _pending_spell != null:
+		_pending_spell = null
+		_change_state(BattleState.MAGIC_SELECT)
+	elif _pending_item != null:
 		_pending_item = null
 		_change_state(BattleState.ITEM_SELECT)
 	else:
@@ -748,13 +789,13 @@ func _move_target(delta: int) -> void:
 
 # Returns the list of valid target indices for the current TARGET_SELECT
 # context. Living enemies are always valid. The player is valid IFF
-# an item is pending (attacks can't target the self).
+# an item OR a spell is pending — regular attacks can't target the self.
 func _valid_targets() -> Array[int]:
 	var targets: Array[int] = []
 	for i in _enemies.size():
 		if (_enemies[i] as BattleEnemy).is_alive():
 			targets.append(i)
-	if _pending_item != null:
+	if _pending_item != null or _pending_spell != null:
 		targets.append(TARGET_INDEX_PLAYER)
 	return targets
 
@@ -886,6 +927,33 @@ func _on_item_canceled() -> void:
 	_change_state(BattleState.PLAYER_MENU)
 
 
+# Called when battle_ui's magic menu fires spell_selected. Validates
+# MP one more time (the menu's dim state is informational — final
+# authority is here). Insufficient MP shows an error and leaves the
+# menu open so the player can pick a different spell. Sufficient MP
+# stashes the spell as _pending_spell and routes to TARGET_SELECT.
+func _on_spell_selected(spell: Spell) -> void:
+	if current_state != BattleState.MAGIC_SELECT:
+		return
+	if spell == null:
+		return
+	if RPGState.mp < spell.mp_cost:
+		battle_ui.set_message("Not enough MP!")
+		return
+	battle_ui.hide_magic_menu()
+	_pending_spell = spell
+	_change_state(BattleState.TARGET_SELECT)
+
+
+# Called when battle_ui's magic menu fires magic_canceled. Returns to
+# the action menu without consuming the turn (same as item cancel).
+func _on_magic_canceled() -> void:
+	if current_state != BattleState.MAGIC_SELECT:
+		return
+	battle_ui.hide_magic_menu()
+	_change_state(BattleState.PLAYER_MENU)
+
+
 # Central function for moving between battle phases.
 # Every time something changes (player acts, enemy acts, battle ends),
 # we call this with the next state to transition into.
@@ -900,6 +968,8 @@ func _change_state(new_state: BattleState) -> void:
 			_run_player_menu()
 		BattleState.ITEM_SELECT:
 			_run_item_select()
+		BattleState.MAGIC_SELECT:
+			_run_magic_select()
 		BattleState.TARGET_SELECT:
 			_run_target_select()
 		BattleState.PLAYER_ATTACK:
@@ -925,7 +995,9 @@ func _change_state(new_state: BattleState) -> void:
 # Input is handled via _handle_target_select_input above.
 func _run_target_select() -> void:
 	var default_idx: int
-	if _pending_item != null:
+	if _pending_spell != null:
+		default_idx = _default_target_for_spell(_pending_spell)
+	elif _pending_item != null:
 		default_idx = _default_target_for_item(_pending_item)
 	else:
 		default_idx = _first_living_enemy_index()
@@ -965,6 +1037,19 @@ func _default_target_for_item(item: Item) -> int:
 			return TARGET_INDEX_PLAYER
 
 
+# Picks the default target index for a given spell. Damage spells
+# default to the first living enemy; heals/cures default to the
+# player. Reserved effect_kinds fall back to player so a misconfigured
+# spell at least lands on a valid target rather than crashing.
+func _default_target_for_spell(spell: Spell) -> int:
+	match spell.effect_kind:
+		Spell.EffectKind.DAMAGE:
+			var enemy_idx: int = _first_living_enemy_index()
+			return enemy_idx if enemy_idx != -1 else TARGET_INDEX_PLAYER
+		_:
+			return TARGET_INDEX_PLAYER
+
+
 # Builds and shows the item picker. Reads RPGState.inventory and
 # hands it to battle_ui to render. Cursor / confirm / cancel routes
 # through item_selected / item_canceled signals (see _on_item_selected
@@ -976,6 +1061,46 @@ func _run_item_select() -> void:
 		battle_ui.set_message("Use which item?")
 	else:
 		battle_ui.set_message("No items.")
+
+
+# Builds and shows the magic picker. Hands battle_ui the available
+# spell list + current MP so it can dim uncastable spells. Confirm /
+# cancel routes through spell_selected / magic_canceled signals.
+func _run_magic_select() -> void:
+	battle_ui.hide_menu()
+	battle_ui.show_magic_menu(_available_spells, RPGState.mp)
+	if _available_spells.is_empty():
+		battle_ui.set_message("No spells available.")
+	else:
+		battle_ui.set_message("Cast which spell?  (MP: %d)" % RPGState.mp)
+
+
+# Scans res://resources/spells/ for .tres files at battle start.
+# Anything that fails the Spell cast is logged but skipped so a
+# malformed file doesn't break the magic menu entirely.
+func _scan_spells_folder() -> Array[Spell]:
+	var found: Array[Spell] = []
+	var dir: DirAccess = DirAccess.open(SPELLS_FOLDER)
+	if dir == null:
+		# Folder doesn't exist yet — that's fine, just means no spells.
+		return found
+	dir.list_dir_begin()
+	var file_name: String = dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".tres"):
+			var path: String = SPELLS_FOLDER + file_name
+			var res: Resource = load(path)
+			var spell: Spell = res as Spell
+			if spell != null:
+				found.append(spell)
+			else:
+				push_warning("battle: %s isn't a Spell" % path)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	# Sort by name for stable menu order.
+	found.sort_custom(func(a: Spell, b: Spell) -> bool:
+		return a.spell_name < b.spell_name)
+	return found
 
 
 # Shows the opening message, waits a moment, then moves to the player's turn.
@@ -1045,9 +1170,10 @@ func _on_action_selected(action: String) -> void:
 			# Show the inventory picker. _on_item_selected then routes
 			# to TARGET_SELECT; status tick fires after target confirm.
 			_change_state(BattleState.ITEM_SELECT)
-		"cast":
-			# Cast remains a stub (Spells Mod will replace this).
-			_change_state(BattleState.SUB_MENU)
+		"magic":
+			# Show the spell picker. _on_spell_selected handles MP
+			# check, then routes through TARGET_SELECT like items.
+			_change_state(BattleState.MAGIC_SELECT)
 		"run":
 			# Run has no target step, so the commit point is right here.
 			# Tick before running away — escaping doesn't dodge poison.
@@ -1316,6 +1442,121 @@ func _apply_item_damage(item: Item, target_is_player: bool, target_enemy: Battle
 		_mark_enemy_defeated(target_enemy)
 	return "%s used %s on %s! %d damage." % [
 		RPGState.character_name, item.item_name, target_enemy.name, damage]
+
+
+# Casts a spell at the given target. Mirrors _use_item's structure
+# but uses MP cost instead of inventory consumption, and the damage
+# formula instead of flat damage. _on_spell_selected already validated
+# that the player has enough MP, but we re-check here as the final
+# authority (in case stats changed between the menu and target confirm).
+func _use_spell(spell: Spell, target_idx: int) -> void:
+	if spell == null:
+		_change_state(BattleState.ENEMY_TURN)
+		return
+	if RPGState.mp < spell.mp_cost:
+		# Defensive fallback — shouldn't happen given the menu check.
+		battle_ui.set_message("Not enough MP!")
+		await get_tree().create_timer(1.0).timeout
+		_change_state(BattleState.ENEMY_TURN)
+		return
+
+	# Resolve target (player vs enemy).
+	var target_is_player: bool = (target_idx == TARGET_INDEX_PLAYER)
+	var target_enemy: BattleEnemy = null
+	if not target_is_player:
+		if target_idx < 0 or target_idx >= _enemies.size():
+			_change_state(BattleState.ENEMY_TURN)
+			return
+		target_enemy = _enemies[target_idx]
+
+	# Pay MP up-front. Even if the effect misses or is no-op (e.g.
+	# curing a status the target doesn't have), the spell still costs
+	# its MP — that matches classic JRPG behavior.
+	RPGState.mp = maxi(RPGState.mp - spell.mp_cost, 0)
+	RPGState.stats_changed.emit()
+
+	var msg: String = ""
+	match spell.effect_kind:
+		Spell.EffectKind.DAMAGE:
+			msg = _apply_spell_damage(spell, target_is_player, target_enemy)
+		Spell.EffectKind.HEAL_HP:
+			# Reserved — not yet implemented. Show a placeholder.
+			msg = "%s cast %s. (HEAL_HP not implemented yet)" % [
+				RPGState.character_name, spell.spell_name]
+		Spell.EffectKind.CURE_STATUS:
+			# Reserved — not yet implemented.
+			msg = "%s cast %s. (CURE_STATUS not implemented yet)" % [
+				RPGState.character_name, spell.spell_name]
+
+	battle_ui.set_message(msg)
+	await get_tree().create_timer(1.2).timeout
+
+	# Spell can end the fight in either direction.
+	if _all_enemies_defeated():
+		_change_state(BattleState.WIN)
+	elif RPGState.hp <= 0:
+		_change_state(BattleState.LOSE)
+	else:
+		_change_state(BattleState.ENEMY_TURN)
+
+
+# Damage-spell effect: uses the standard damage formula but with
+# INTELLIGENCE as the attacker stat (rather than attack). spell.power
+# stacks onto intelligence the same way a weapon's power_bonus stacks
+# onto attack. Crits still roll off luck.
+func _apply_spell_damage(spell: Spell, target_is_player: bool, target_enemy: BattleEnemy) -> String:
+	# Decide popup color — spell's own override if non-white, otherwise
+	# the global magic-default magenta.
+	var popup_color: Color = spell.popup_color
+	if popup_color == Color.WHITE:
+		popup_color = MAGIC_DAMAGE_DEFAULT_COLOR
+
+	if target_is_player:
+		# Magic damage on self (e.g. testing). Use the player's own
+		# defense and luck.
+		var roll: Dictionary = _calculate_damage(
+			RPGState.get_effective_intelligence(),
+			spell.power,
+			RPGState.get_effective_luck(),
+			RPGState.get_effective_defense())
+		var damage: int = roll["damage"]
+		var is_crit: bool = roll["crit"]
+		RPGState.hp = maxi(RPGState.hp - damage, 0)
+		RPGState.stats_changed.emit()
+		battle_ui.update_player_hp(RPGState.hp)
+		DamagePopup.spawn_status(
+			self, player_sprite.global_position + POPUP_OFFSET,
+			damage, popup_color)
+		_hit_effect(player_sprite)
+		_camera_shake(CAM_SHAKE_INTENSITY_NORMAL, CAM_SHAKE_DURATION)
+		var crit_text: String = " Critical hit!" if is_crit else ""
+		return "%s cast %s on themselves! %d damage.%s" % [
+			RPGState.character_name, spell.spell_name, damage, crit_text]
+
+	# Standard case: damage spell on an enemy.
+	var roll: Dictionary = _calculate_damage(
+		RPGState.get_effective_intelligence(),
+		spell.power,
+		RPGState.get_effective_luck(),
+		target_enemy.defense)
+	var damage: int = roll["damage"]
+	var is_crit: bool = roll["crit"]
+	target_enemy.hp = maxi(target_enemy.hp - damage, 0)
+	_animate_enemy_hp(target_enemy, target_enemy.hp)
+	DamagePopup.spawn_status(
+		self, target_enemy.sprite.global_position + POPUP_OFFSET,
+		damage, popup_color)
+	_hit_effect(target_enemy.sprite)
+	_camera_shake(
+		CAM_SHAKE_INTENSITY_CRIT if is_crit else CAM_SHAKE_INTENSITY_NORMAL,
+		CAM_SHAKE_DURATION)
+	if is_crit:
+		_screen_flash(SCREEN_FLASH_COLOR, SCREEN_FLASH_DURATION)
+	if target_enemy.hp <= 0:
+		_mark_enemy_defeated(target_enemy)
+	var crit_text: String = " Critical hit!" if is_crit else ""
+	return "%s cast %s on %s! %d damage.%s" % [
+		RPGState.character_name, spell.spell_name, target_enemy.name, damage, crit_text]
 
 
 # Each living enemy takes a turn in left-to-right order. Within a single

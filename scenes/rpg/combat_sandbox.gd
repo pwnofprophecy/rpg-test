@@ -44,7 +44,9 @@ extends Node2D
 const _STAT_FIELDS: Array[Dictionary] = [
 	{"label": "Max HP",       "prop": "max_hp",        "min": 1, "max": 9999,   "effective": "get_effective_max_hp"},
 	{"label": "HP",           "prop": "hp",            "min": 0, "max": 9999,   "effective": ""},
-	{"label": "Max MP",       "prop": "max_mp",        "min": 0, "max": 9999,   "effective": "get_effective_max_mp"},
+	# Max MP is derived from Intelligence (× MP_PER_INT_LEVEL) plus
+	# equipment bonuses — it's not directly editable. See the
+	# read-only "Max MP" label rendered after these editable rows.
 	{"label": "MP",           "prop": "mp",            "min": 0, "max": 9999,   "effective": ""},
 	{"label": "Attack",       "prop": "attack",        "min": 0, "max": 999,    "effective": "get_effective_attack"},
 	{"label": "Defense",      "prop": "defense",       "min": 0, "max": 999,    "effective": "get_effective_defense"},
@@ -113,6 +115,12 @@ var _enemy_choices: Array[EnemyStats] = []
 # Map of stat property name → SpinBox driving it. Used to refresh the
 # spin boxes when RPGState changes (e.g. after Reset to Defaults).
 var _stat_editors: Dictionary = {}
+
+# Read-only Label showing the derived Max MP (Intelligence × 2 +
+# equipment mp_bonus). Updated on stats_changed since both factors
+# can shift. Created in _populate_player_stats after the editable
+# stat rows.
+var _max_mp_readout: Label = null
 
 # Map of stat property name → { "label": Label, "method": String }.
 # The label sits next to the SpinBox and shows " → N" when the
@@ -251,6 +259,15 @@ func _populate_player_stats() -> void:
 		_stat_editors[prop] = spin
 		player_stats_container.add_child(row)
 
+	# Read-only Max MP display. MP is purely derived from Intelligence
+	# (and equipment mp_bonus), so a direct SpinBox would mislead — this
+	# Label updates via stats_changed instead.
+	_max_mp_readout = Label.new()
+	_max_mp_readout.add_theme_font_size_override("font_size", 16)
+	_max_mp_readout.add_theme_color_override("font_color", Color(0.7, 0.85, 1.0))
+	player_stats_container.add_child(_max_mp_readout)
+	_refresh_max_mp_readout()
+
 	# Equipment section sits inside the same Player Stats column.
 	# Visual divider + header + three slot dropdowns (Weapon, Armor,
 	# Accessory). Built programmatically so adding a new slot type
@@ -296,6 +313,10 @@ func _refresh_stat_editors() -> void:
 	# resync'd) equipment.
 	_refresh_effective_labels()
 
+	# Max MP readout depends on intelligence + equipment, so it also
+	# refreshes whenever stats_changed fires.
+	_refresh_max_mp_readout()
+
 	# Enemy slot readouts include matchup metrics (average damage,
 	# turns-to-KO) that depend on the player's effective stats, so
 	# they refresh whenever player stats might have changed.
@@ -317,6 +338,16 @@ func _refresh_equipment_dropdowns() -> void:
 				target_idx = found + 1
 		if dropdown.selected != target_idx:
 			dropdown.selected = target_idx
+
+
+# Updates the read-only Max MP Label. Since Max MP is derived from
+# Intelligence (× MP_PER_INT_LEVEL) plus equipment mp_bonus, no
+# SpinBox would faithfully represent it — a label that follows the
+# stats_changed signal stays correct without misleading editability.
+func _refresh_max_mp_readout() -> void:
+	if _max_mp_readout == null:
+		return
+	_max_mp_readout.text = "  Max MP (derived): %d" % RPGState.get_effective_max_mp()
 
 
 # Updates the " → N" label next to each equipment-affected stat. Shows

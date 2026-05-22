@@ -27,6 +27,14 @@ signal item_canceled
 # this signal is the mouse-equivalent path.
 signal target_cancel_clicked
 
+# Emitted when the player picks a spell from the magic menu. battle.gd
+# then routes through MP check + target selection. Mirrors item_selected.
+signal spell_selected(spell: Spell)
+
+# Emitted when the player cancels out of the magic menu (Esc, click
+# on Cancel row, or right-click). battle.gd returns to the action menu.
+signal magic_canceled
+
 # --- Node References ---
 # "@onready" tells Godot: once the scene is loaded, find the node at this
 # path and store a reference to it in this variable.
@@ -72,6 +80,19 @@ var item_menu_cursor: int = 0
 # to _cancel_target.
 var target_cancel_button: Button = null
 
+# --- Magic menu state ---
+# Mirrors the item menu state but for spells. Built on demand by
+# show_magic_menu; torn down (hidden) by hide_magic_menu. Spells with
+# insufficient MP are visually dimmed and rejected on confirm with a
+# "Not enough MP!" message that stays in the menu so the player can
+# pick something else without backing out.
+var magic_menu_panel: PanelContainer = null
+var magic_menu_vbox: VBoxContainer = null
+var magic_menu_labels: Array[Label] = []
+var magic_menu_spells: Array = []  # parallel to magic_menu_labels — Array[Spell]
+var magic_menu_active: bool = false
+var magic_menu_cursor: int = 0
+
 # An array holding references to the four menu option labels,
 # in the order they appear in the 2x2 grid:
 #   [0: Attack]  [1: Cast]
@@ -95,9 +116,12 @@ var menu_active: bool = false      # True when the player can navigate the main 
 var sub_menu_active: bool = false  # True when the player is inside Cast or Item
 
 # The action strings that match each menu slot by index.
-# Index 0 = "attack", 1 = "cast", 2 = "item", 3 = "run".
+# Index 0 = "attack", 1 = "magic", 2 = "item", 3 = "run".
 # "const" means this list never changes at runtime.
-const ACTIONS: Array[String] = ["attack", "cast", "item", "run"]
+# Note: the corresponding label node in the .tscn is still named
+# "CastLabel" for historical reasons — the user-visible text comes
+# from the capitalized action string here, not the node name.
+const ACTIONS: Array[String] = ["attack", "magic", "item", "run"]
 
 
 # Wires mouse support onto the menu labels. Labels default to
@@ -219,6 +243,27 @@ func _on_menu_label_input(event: InputEvent, idx: int) -> void:
 # but only if no other node has already "handled" it.
 # We use this to drive menu navigation without needing a polling loop.
 func _unhandled_input(event: InputEvent) -> void:
+	# If we're inside the magic menu, route keys there. Same shape as
+	# the item menu — Up/Down navigate, Enter confirms (with MP check),
+	# Esc cancels. Cancel row is always present so nav modulo is safe.
+	if magic_menu_active:
+		var mag_nav_count: int = magic_menu_labels.size()
+		if event.is_action_pressed("ui_up") and mag_nav_count > 0:
+			magic_menu_cursor = (magic_menu_cursor - 1 + mag_nav_count) % mag_nav_count
+			_update_magic_menu_cursor()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_down") and mag_nav_count > 0:
+			magic_menu_cursor = (magic_menu_cursor + 1) % mag_nav_count
+			_update_magic_menu_cursor()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_accept"):
+			_confirm_magic_selection()
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_cancel"):
+			magic_canceled.emit()
+			get_viewport().set_input_as_handled()
+		return
+
 	# If we're inside the item menu, route keys there: Up/Down navigate,
 	# Enter confirms, Esc/Backspace cancels (item_canceled signal).
 	# Navigation now includes the Cancel row at the bottom, so the
@@ -639,6 +684,166 @@ func _confirm_item_selection() -> void:
 	else:
 		# Cancel row.
 		item_canceled.emit()
+
+
+# --- Magic menu ---
+# Builds a vertical list of available spells with their MP costs. Same
+# structure as the item menu (Labels in a panel, cursor + Enter +
+# mouse). Spells the player can't afford (mp_cost > current MP) are
+# visually dimmed and reject the selection with a "Not enough MP!"
+# message — the menu stays open so the player can pick another.
+#
+# `spells` is an Array of Spell Resources. `current_mp` is the
+# player's current MP at menu-open time — used to render the dim
+# state and to gate the confirmation.
+func show_magic_menu(spells: Array, current_mp: int) -> void:
+	_ensure_magic_menu_built()
+
+	# Tear down any previous list entries so re-opening shows fresh
+	# state (e.g. spells the player can no longer afford after casting).
+	for lbl in magic_menu_labels:
+		lbl.queue_free()
+	magic_menu_labels.clear()
+	magic_menu_spells.clear()
+
+	for spell_var in spells:
+		var spell: Spell = spell_var as Spell
+		if spell == null:
+			continue
+		var lbl := _make_magic_menu_label(spell, current_mp)
+		magic_menu_vbox.add_child(lbl)
+		magic_menu_labels.append(lbl)
+		magic_menu_spells.append(spell)
+		var idx: int = magic_menu_labels.size() - 1
+		lbl.mouse_entered.connect(_on_magic_menu_label_hovered.bind(idx))
+		lbl.gui_input.connect(_on_magic_menu_label_input.bind(idx))
+
+	# Cancel row at the bottom — same pattern as the item menu.
+	var cancel_lbl := Label.new()
+	cancel_lbl.text = "  Cancel"
+	cancel_lbl.add_theme_font_size_override("font_size", 18)
+	cancel_lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+	magic_menu_vbox.add_child(cancel_lbl)
+	magic_menu_labels.append(cancel_lbl)
+	var cancel_idx: int = magic_menu_labels.size() - 1
+	cancel_lbl.mouse_entered.connect(_on_magic_menu_label_hovered.bind(cancel_idx))
+	cancel_lbl.gui_input.connect(_on_magic_menu_label_input.bind(cancel_idx))
+
+	magic_menu_cursor = 0
+	magic_menu_active = true
+	magic_menu_panel.visible = true
+	_update_magic_menu_cursor()
+
+
+func hide_magic_menu() -> void:
+	magic_menu_active = false
+	if magic_menu_panel != null:
+		magic_menu_panel.visible = false
+
+
+# Lazily creates the magic menu panel on first use. Same screen position
+# as the item menu (which is hidden when this one shows).
+func _ensure_magic_menu_built() -> void:
+	if magic_menu_panel != null:
+		return
+	magic_menu_panel = PanelContainer.new()
+	magic_menu_panel.anchor_left = 1.0
+	magic_menu_panel.anchor_top = 1.0
+	magic_menu_panel.anchor_right = 1.0
+	magic_menu_panel.anchor_bottom = 1.0
+	magic_menu_panel.offset_left = -300.0
+	magic_menu_panel.offset_top = -260.0
+	magic_menu_panel.offset_right = -20.0
+	magic_menu_panel.offset_bottom = -180.0
+	magic_menu_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	magic_menu_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	magic_menu_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(magic_menu_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	magic_menu_panel.add_child(margin)
+
+	magic_menu_vbox = VBoxContainer.new()
+	magic_menu_vbox.add_theme_constant_override("separation", 4)
+	magic_menu_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(magic_menu_vbox)
+
+	magic_menu_panel.visible = false
+
+
+# Builds one row Label for a spell. Sets up mouse_filter STOP so
+# hover/click fires. Color reflects MP affordability — dimmed gray
+# when the player can't afford it.
+func _make_magic_menu_label(spell: Spell, current_mp: int) -> Label:
+	var lbl := Label.new()
+	lbl.text = "  %s (%d MP)" % [spell.spell_name, spell.mp_cost]
+	lbl.add_theme_font_size_override("font_size", 18)
+	lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+	if current_mp < spell.mp_cost:
+		# Dim uncastable spells. Visible enough to read, clearly
+		# distinct from castable ones.
+		lbl.add_theme_color_override("font_color", Color(0.55, 0.55, 0.55))
+	return lbl
+
+
+# Redraws cursor indicator. Spell rows show "Name (X MP)"; Cancel
+# row shows "Cancel". Color overrides from _make_magic_menu_label
+# (dim for uncastable) survive the prefix re-render.
+func _update_magic_menu_cursor() -> void:
+	for i in magic_menu_labels.size():
+		var lbl: Label = magic_menu_labels[i]
+		var prefix: String = "> " if i == magic_menu_cursor else "  "
+		if i < magic_menu_spells.size():
+			var spell: Spell = magic_menu_spells[i]
+			lbl.text = "%s%s (%d MP)" % [prefix, spell.spell_name, spell.mp_cost]
+		else:
+			lbl.text = "%sCancel" % prefix
+
+
+func _on_magic_menu_label_hovered(idx: int) -> void:
+	if not magic_menu_active:
+		return
+	if idx < 0 or idx >= magic_menu_labels.size():
+		return
+	magic_menu_cursor = idx
+	_update_magic_menu_cursor()
+
+
+func _on_magic_menu_label_input(event: InputEvent, idx: int) -> void:
+	if not magic_menu_active:
+		return
+	if not _is_left_click(event):
+		return
+	if idx < 0 or idx >= magic_menu_labels.size():
+		return
+	magic_menu_cursor = idx
+	_confirm_magic_selection()
+	get_viewport().set_input_as_handled()
+
+
+# Fires the appropriate signal based on cursor position. Spell rows
+# emit spell_selected (and battle.gd handles MP check / target select);
+# the Cancel row emits magic_canceled.
+#
+# Cheap MP check happens here too so the dim/disabled visual matches
+# behavior — clicking a dimmed spell shows "Not enough MP!" and stays
+# in the menu, letting the player pick something else without
+# bouncing all the way back to the action menu.
+func _confirm_magic_selection() -> void:
+	if magic_menu_cursor < 0 or magic_menu_cursor >= magic_menu_labels.size():
+		return
+	if magic_menu_cursor >= magic_menu_spells.size():
+		# Cancel row.
+		magic_canceled.emit()
+		return
+	# Spell row.
+	var picked: Spell = magic_menu_spells[magic_menu_cursor]
+	spell_selected.emit(picked)
 
 
 # --- Target cancel button ---
