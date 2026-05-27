@@ -1,36 +1,30 @@
 # rpg_overworld.gd
-# The root script for the RPG overworld scene. Responsibilities:
+# The root script for the RPG overworld scene. It extends RPGLocationBase
+# (scenes/rpg/rpg_location_base.gd), which provides all the machinery
+# every RPG location shares — the tier overlay shader, the pause menu +
+# Save-confirm flow, camera snap-on-load, the [Interact] hint helper, and
+# Exit-RPG handling. See that file for the full list.
 #
-#   1. Drive the tier overlay shader (palette / pixel scale / scanlines).
-#   2. Host a pause menu with RPG-flavored options (Resume / Save / Exit RPG).
-#   3. On first entry, show the name entry screen so the player can name
+# This script adds ONLY what's unique to the overworld, via the base's
+# virtual hooks:
+#
+#   _location_ready()        — wire entrance triggers, restore the saved
+#                              return position, seed the encounter stepper,
+#                              and show the name-entry overlay on first entry.
+#   _handle_location_input() — Enter triggers a nearby entrance; F4 toggles
+#                              random encounters.
+#   _can_open_pause()        — also blocks while the name-entry overlay is up.
+#
+# The overworld's own responsibilities on top of the base:
+#   1. On first entry, show the name entry screen so the player can name
 #      their Hero. Subsequent entries skip it.
-#   4. Count player "steps" across the overworld and trigger random
-#      encounters every N steps (range tunable in the Inspector). In sub-
-#      phase 3a this just prints "Encounter!" — the battle scene hook lands
-#      in sub-phase 3c.
-#   5. Expose NodePath slots for the TownEntrance and DungeonEntrance Area2Ds
-#      you place in the scene. Empty paths are fine — those hooks simply go
-#      unwired. That lets the scene be rebuilt incrementally without
-#      breaking the game.
+#   2. Count player "steps" and trigger random encounters every N steps
+#      (range tunable in the Inspector).
+#   3. Expose NodePath slots for the TownEntrance and DungeonEntrance Area2Ds
+#      placed in the scene. Empty paths are fine — those hooks just go
+#      unwired so the scene can be rebuilt incrementally.
 
-extends Node2D
-
-# --- Node References ---
-@onready var tier_overlay: ColorRect = $TierOverlayLayer/TierOverlay
-@onready var pause_menu = $PauseMenu
-@onready var dialogue_box = $DialogueBox
-@onready var player: Node2D = $Player
-# The Player node's Camera2D child. Used to snap the viewport to the
-# player on scene load — see _ready below for the smoothing-reset fix.
-# Wrapped in has_node so the script doesn't crash if you're testing the
-# scene without a camera attached.
-@onready var player_camera: Camera2D = $Player/Camera2D if has_node("Player/Camera2D") else null
-# Optional Label that pops up when the player is standing in an entrance,
-# showing the entrance's per-instance hint_text. Wrapped in @onready so the
-# scene still loads if the HintLayer hasn't been added yet — we just skip
-# show/hide calls when it's null.
-@onready var interact_hint: Label = $HintLayer/InteractHint if has_node("HintLayer/InteractHint") else null
+extends RPGLocationBase
 
 # --- Inspector-editable: Entrances ---
 # Drag your hand-placed Area2D nodes into these slots in the Inspector.
@@ -44,14 +38,15 @@ extends Node2D
 
 # --- Entrance proximity state ---
 # The Interactable the player is currently standing inside, or null. We set
-# this in player_entered_zone and clear it in player_left_zone, then read
-# it in _unhandled_input when the player presses Enter to decide what to do.
+# this in _on_entrance_entered and clear it in _on_entrance_exited, then read
+# it in _handle_location_input when the player presses Enter to decide what
+# to do.
 var _current_entrance: Interactable = null
 
 # --- Inspector-editable: Encounter tuning ---
 # Master switch for random encounters. Flip this in the Inspector to test
 # the overworld without battles popping up, or toggle it at runtime with
-# F4 (see _unhandled_input below). When false, the stepper still ticks
+# F4 (see _handle_location_input below). When false, the stepper still ticks
 # distance internally but never fires an encounter.
 @export var encounters_enabled: bool = true
 # Encounters fire after a random number of steps in [min, max]. Tune these
@@ -61,17 +56,6 @@ var _current_entrance: Interactable = null
 # How many world-units of player movement count as one "step". 32 roughly
 # matches a tile-width, which is a familiar JRPG feel.
 @export_range(8.0, 128.0) var step_distance: float = 32.0
-
-# --- Shader constants ---
-const PALETTE_SHADER_SIZE: int = 16
-
-# --- DialogMode (pause flow routing) ---
-enum DialogMode {
-	NONE,
-	PAUSE_SAVE_CONFIRM,
-	PAUSE_SAVE_RESULT,
-}
-var _dialog_mode: DialogMode = DialogMode.NONE
 
 # --- Encounter stepper state ---
 # Accumulates distance between _process frames, converting to discrete
@@ -90,50 +74,26 @@ const NAME_ENTRY_SCENE: PackedScene = preload("res://scenes/rpg/name_entry.tscn"
 var _name_entry_instance: CanvasLayer = null
 
 
-func _ready() -> void:
-	# Apply the initial tier and listen for future tier changes.
-	_apply_current_tier()
-	Aesthetic.tier_changed.connect(_on_tier_changed)
+# --- Virtual hook overrides ---
 
-	# Pause menu wiring.
-	pause_menu.option_selected.connect(_on_pause_option)
-
-	# DialogueBox wiring (save confirm flow, future NPC text).
-	dialogue_box.choice_made.connect(_on_choice_made)
-	dialogue_box.dismissed.connect(_on_dialogue_dismissed)
-
+func _location_ready() -> void:
 	# Wire entrance triggers if the designer has assigned them. The handlers
-	# now just track proximity — the actual "enter the area" trigger fires
-	# from _unhandled_input when the player presses ui_accept while inside.
+	# just track proximity — the actual "enter the area" trigger fires from
+	# _handle_location_input when the player presses ui_accept while inside.
 	_connect_entrance(town_entrance_path)
 	_connect_entrance(dungeon_entrance_path)
 
 	# If the player is returning from a sub-location (town/dungeon), drop
 	# them back where they were standing. Vector2.ZERO is the "no saved
 	# position" sentinel — first entry from the Real World hits this case
-	# and the player stays at the scene's default spawn point.
+	# and the player stays at the scene's default spawn point. This runs
+	# BEFORE the base's _snap_camera (the base calls _location_ready first),
+	# so the camera frames the restored position, not the default spawn.
 	if player != null and GameManager.overworld_return_position != Vector2.ZERO:
 		player.global_position = GameManager.overworld_return_position
 		# Consume the saved position so a fresh entry from the Real World
 		# next time uses the default spawn instead of stale data.
 		GameManager.overworld_return_position = Vector2.ZERO
-
-	# Snap the camera to the player's actual position immediately so the
-	# first frame doesn't show the smoothing interpolating from somewhere
-	# else. Two artifacts this prevents:
-	#   1. On RPG entry from the Real World, the Real World scene's
-	#      Camera2D is still "current" during the same frame the new RPG
-	#      scene loads (queue_free is end-of-frame, so both cameras are
-	#      briefly alive). Without make_current() the viewport keeps
-	#      rendering the Real World camera's last position. The battle
-	#      scene doesn't have this problem because it has no Camera2D.
-	#   2. After returning from a sub-location, the camera "snaps" to the
-	#      .tscn-default spawn (576, 324) and then slides to the restored
-	#      position once _ready repositions the player. reset_smoothing
-	#      collapses that slide into a single frame.
-	if player_camera != null:
-		player_camera.make_current()
-		player_camera.reset_smoothing()
 
 	# Seed the stepper with the player's current position so the first
 	# frame doesn't register a huge distance delta.
@@ -149,14 +109,7 @@ func _ready() -> void:
 		_stepper_enabled = true
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	# Escape opens the pause menu, unless another UI is already up.
-	if event.is_action_pressed("pause"):
-		if not pause_menu.is_open() and _name_entry_instance == null:
-			_open_pause_menu()
-			get_viewport().set_input_as_handled()
-		return
-
+func _handle_location_input(event: InputEvent) -> void:
 	# Enter triggers the current entrance, if the player is standing inside
 	# one and no UI is blocking. Pause menu and dialogue box consume input
 	# themselves when open, so we mostly just need to guard against name
@@ -168,14 +121,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	# F4 toggles random encounters on/off at runtime. Useful for walking the
-	# overworld during testing without battles interrupting. Prints the new
-	# state to the debugger so you can see what you flipped to.
+	# overworld during testing without battles interrupting.
 	if event.is_action_pressed("debug_toggle_encounters"):
 		encounters_enabled = not encounters_enabled
 		print("rpg_overworld: encounters_enabled = %s" % encounters_enabled)
 		get_viewport().set_input_as_handled()
 		return
 
+
+func _can_open_pause() -> bool:
+	# Base blocks while the pause menu or dialogue box is up; we also block
+	# while the name-entry overlay is showing.
+	return super._can_open_pause() and _name_entry_instance == null
+
+
+# --- Encounter stepper ---
 
 func _process(_delta: float) -> void:
 	# Step-based encounter counter. Distance-based rather than frame-based
@@ -202,43 +162,6 @@ func _process(_delta: float) -> void:
 	while _distance_since_last_step >= step_distance:
 		_distance_since_last_step -= step_distance
 		_on_step()
-
-
-# --- Tier application ---
-
-func _on_tier_changed(_new_tier: Aesthetic.Tier) -> void:
-	_apply_current_tier()
-
-
-func _apply_current_tier() -> void:
-	var tier: AestheticTier = Aesthetic.get_palette()
-	if tier == null:
-		push_warning("rpg_overworld: no active tier to apply")
-		return
-
-	var mat: ShaderMaterial = tier_overlay.material as ShaderMaterial
-	if mat == null:
-		push_warning("rpg_overworld: TierOverlay has no ShaderMaterial")
-		return
-
-	var palette_source: Array[Color] = tier.palette
-	var palette_count: int = min(palette_source.size(), PALETTE_SHADER_SIZE)
-	if palette_source.size() > PALETTE_SHADER_SIZE:
-		push_warning("Tier '%s' has %d palette entries — only the first %d are used."
-			% [tier.tier_name, palette_source.size(), PALETTE_SHADER_SIZE])
-
-	var packed: PackedVector4Array = PackedVector4Array()
-	packed.resize(PALETTE_SHADER_SIZE)
-	var pad_color: Color = palette_source[0] if palette_count > 0 else Color.BLACK
-	for i in PALETTE_SHADER_SIZE:
-		var c: Color = palette_source[i] if i < palette_count else pad_color
-		packed[i] = Vector4(c.r, c.g, c.b, c.a)
-
-	mat.set_shader_parameter("palette", packed)
-	mat.set_shader_parameter("palette_size", maxi(palette_count, 1))
-	mat.set_shader_parameter("pixel_scale", float(tier.pixel_scale))
-	mat.set_shader_parameter("scanline_strength", tier.scanline_strength)
-	mat.set_shader_parameter("scanline_frequency", tier.scanline_frequency)
 
 
 # --- Name Entry ---
@@ -269,58 +192,6 @@ func _on_name_confirmed(_name: String) -> void:
 	if player != null:
 		_last_player_pos = player.global_position
 	_stepper_enabled = true
-
-
-# --- Pause Menu ---
-
-func _open_pause_menu() -> void:
-	get_tree().paused = true
-	pause_menu.open([
-		{"id": "resume",   "label": "Resume"},
-		{"id": "save",     "label": "Save"},
-		{"id": "exit_rpg", "label": "Exit RPG"},
-	])
-
-
-func _on_pause_option(id: String) -> void:
-	match id:
-		"resume":
-			get_tree().paused = false
-		"save":
-			_dialog_mode = DialogMode.PAUSE_SAVE_CONFIRM
-			dialogue_box.show_choice("Save game?", ["Save", "Cancel"])
-		"exit_rpg":
-			GameManager.set_flag("returning_from_rpg", true)
-			get_tree().paused = false
-			GameManager.switch_to_world(GameManager.World.REAL_WORLD)
-
-
-# --- DialogueBox callbacks (pause flow) ---
-
-func _on_choice_made(index: int) -> void:
-	match _dialog_mode:
-		DialogMode.PAUSE_SAVE_CONFIRM:
-			if index == 0:
-				SaveSystem.save_game()
-				_dialog_mode = DialogMode.PAUSE_SAVE_RESULT
-				dialogue_box.show_text("Game saved.")
-			else:
-				_dialog_mode = DialogMode.NONE
-				pause_menu.open([
-					{"id": "resume",   "label": "Resume"},
-					{"id": "save",     "label": "Save"},
-					{"id": "exit_rpg", "label": "Exit RPG"},
-				])
-
-
-func _on_dialogue_dismissed() -> void:
-	if _dialog_mode == DialogMode.PAUSE_SAVE_RESULT:
-		_dialog_mode = DialogMode.NONE
-		pause_menu.open([
-			{"id": "resume",   "label": "Resume"},
-			{"id": "save",     "label": "Save"},
-			{"id": "exit_rpg", "label": "Exit RPG"},
-		])
 
 
 # --- Encounters ---
@@ -393,19 +264,6 @@ func _on_entrance_exited(zone: Interactable) -> void:
 	if _current_entrance == zone:
 		_current_entrance = null
 		_show_hint("")
-
-
-func _show_hint(text: String) -> void:
-	# Single point of control for the hint label. Empty text hides the
-	# label entirely. Safely no-ops if the HintLayer/InteractHint node
-	# hasn't been added to the scene yet.
-	if interact_hint == null:
-		return
-	if text == "":
-		interact_hint.visible = false
-	else:
-		interact_hint.text = text
-		interact_hint.visible = true
 
 
 func _trigger_entrance(zone: Interactable) -> void:

@@ -41,9 +41,25 @@ The SceneManager (`scenes/main.gd`) is the root scene and swaps between them bas
 ### RPG Sub-Locations
 The RPG world has multiple "places" the player can be in: the overworld map, towns, dungeons, etc. These are tracked separately from the World layer via `GameManager.rpg_location` (an `RPGLocation` enum: `OVERWORLD`, `TOWN`, `DUNGEON`). When `GameManager.switch_rpg_location()` fires, `main.gd` swaps the active RPG sub-scene — but only if the player is currently in the RPG world. If they're in the Real World, the new location is queued for the next time they enter the RPG via the PC.
 
-`GameManager.overworld_return_position` is the bridge for "where do I respawn when I leave a sub-location?" When entering a town/dungeon from the overworld, the trigger handler stashes `player.global_position` here. When the overworld scene reloads, its `_ready()` consumes that position and resets it to `Vector2.ZERO` (the "no saved position, use the default spawn" sentinel). This means a fresh RPG entry from the Real World always uses the scene's hand-placed default spawn, while round-trips to towns/dungeons preserve where the player was standing.
+`GameManager.overworld_return_position` is the bridge for "where do I respawn when I leave a sub-location?" When entering a town/dungeon from the overworld, the trigger handler stashes `player.global_position` here. When the overworld scene reloads, its `_location_ready()` consumes that position and resets it to `Vector2.ZERO` (the "no saved position, use the default spawn" sentinel). This means a fresh RPG entry from the Real World always uses the scene's hand-placed default spawn, while round-trips to towns/dungeons preserve where the player was standing.
 
-Adding a new RPG sub-location: add an enum entry to `RPGLocation`, a `preload` constant in `main.gd`, and a match arm in `main.gd`'s `_rpg_scene_for_location()`. Build the scene's `.tscn` mirroring the structure of `rpg_town.tscn` — root Node2D with the location script, plus `TierOverlayLayer`, `HintLayer`, `PauseMenu`, `DialogueBox`, and Player+Camera2D children. The location script handles its own pause menu wiring, save flow, and interactable routing — for now this is duplicated from `rpg_overworld.gd` / `rpg_town.gd` rather than factored into a base class. Refactor to a shared base when a third location lands.
+#### Shared base class: `RPGLocationBase`
+Every RPG location scene's root script `extends RPGLocationBase` (`scenes/rpg/rpg_location_base.gd`, `class_name RPGLocationBase extends Node2D`). The base owns all the machinery shared by every location:
+- Tier overlay shader (palette / pixel scale / scanlines)
+- Pause menu wiring + the Save-confirm → "Game saved." → back-to-menu flow
+- Camera snap-on-load (`make_current()` + `reset_smoothing()`)
+- The `[Interact]` hint label helper (`_show_hint`)
+- Unified `_exit_rpg()` (resets `rpg_location` to `OVERWORLD`, clears the return position, switches to the Real World)
+- The `DialogMode` enum and `_dialog_mode` flag used by the save flow
+
+The base's `_ready()` and `_unhandled_input()` are **final in spirit** — subclasses never touch them. Instead they override three **virtual hooks**:
+- `_location_ready()` — per-location setup. Runs in `_ready` **before** the camera snap, so anything that repositions the player (e.g. the overworld restoring a saved position) happens first; the camera then frames the final spot.
+- `_handle_location_input(event)` — per-location input, after the base has consumed the pause key.
+- `_can_open_pause() -> bool` — whether the pause menu may open right now. Default blocks while the pause menu or dialogue box is up; override and AND in extra blockers (the overworld ANDs in `_name_entry_instance == null`).
+
+`rpg_overworld.gd` and `rpg_town.gd` are both thin subclasses: the overworld adds entrance NodePaths, the encounter stepper, and name entry; the town adds interactable auto-discovery and NPC dialogue routing.
+
+Adding a new RPG sub-location: add an enum entry to `RPGLocation`, a `preload` constant in `main.gd`, and a match arm in `main.gd`'s `_rpg_scene_for_location()`. Build the scene's `.tscn` mirroring the structure of `rpg_town.tscn` — root Node2D (script `extends RPGLocationBase`), plus `TierOverlayLayer`, `HintLayer`, `PauseMenu`, `DialogueBox`, and Player+Camera2D children. The new location script overrides only the three virtual hooks for its unique behavior — the tier overlay, pause/save flow, camera snap, hint label, and Exit-RPG all come free from the base.
 
 ## Autoloads
 Five singletons are registered in `project.godot`:
