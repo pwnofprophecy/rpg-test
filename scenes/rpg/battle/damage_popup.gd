@@ -68,6 +68,17 @@ static func spawn_status(parent: Node, world_pos: Vector2, damage: int, color: C
 	popup._init_visuals_colored(damage, color)
 
 
+# Variant for popups that show a WORD rather than a number — e.g. a
+# cure spell flashing "Cleansed", a miss flashing "Miss". Same float +
+# fade + tint treatment as spawn_status, just with arbitrary text.
+static func spawn_text(parent: Node, world_pos: Vector2, text: String, color: Color) -> void:
+	var popup := DamagePopup.new()
+	parent.add_child(popup)
+	popup.global_position = world_pos
+	popup.z_index = 100
+	popup._init_visuals_text(text, color)
+
+
 # Builds the Label, applies styling, and starts the rise-and-fade tween.
 # Called immediately after spawn() positions the popup.
 func _init_visuals(damage: int, is_crit: bool) -> void:
@@ -81,6 +92,12 @@ func _init_visuals(damage: int, is_crit: bool) -> void:
 # ticks where the type of damage matters more than its magnitude.
 func _init_visuals_colored(damage: int, color: Color) -> void:
 	_build_label_and_animate(str(damage), color, NORMAL_FONT_SIZE)
+
+
+# Variant: arbitrary text + color, normal size. Used by effects that
+# want to flash a word ("Cleansed", "Miss") instead of a number.
+func _init_visuals_text(text: String, color: Color) -> void:
+	_build_label_and_animate(text, color, NORMAL_FONT_SIZE)
 
 
 # Shared label-construction path so the two _init_visuals* variants

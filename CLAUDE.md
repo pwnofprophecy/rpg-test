@@ -253,7 +253,7 @@ Spells are MP-fueled abilities the Hero can cast in battle via the "Magic" actio
 - `spell_name`, `description`, `mp_cost`
 - `effect_kind: EffectKind` enum: **DAMAGE** and **HEAL_HP** are implemented; **CURE_STATUS** is reserved (still a no-op placeholder)
 - `power: int` — for DAMAGE, bonus added onto Intelligence in the damage formula (same role weapon `power_bonus` plays for physical attacks). For HEAL_HP, added to Intelligence in the heal formula.
-- `status_name: String` — for future CURE_STATUS spells
+- `status_name: String` — for CURE_STATUS spells: the single status to remove. Leave empty for a "cleanse" that removes all negative statuses at once.
 - `popup_color: Color` — per-spell damage popup tint so each spell reads distinctly (Firebolt orange, future ice spells blue, etc.). Default white falls back to `MAGIC_DAMAGE_DEFAULT_COLOR` (magenta) in `battle.gd`.
 
 **Damage formula for magic** — same shape as physical damage, just substitute Intelligence for Attack:
@@ -270,6 +270,8 @@ Heal = max(1, floor((Intelligence + spell.power) × SPELL_HEAL_COEFFICIENT × Ra
 ```
 `SPELL_HEAL_COEFFICIENT` defaults to 2.0 in `battle.gd`. Only the random variance (`RANDOM_LOW..RANDOM_HIGH`) applies. HEAL_HP spells default-target the player (overridable to an enemy). The cast gesture is "channeling" — glow + hold, no lunge — since healing isn't an attack. Heals are computed in `_calculate_heal` / applied in `_apply_spell_heal`.
 
+**CURE_STATUS spells** strip status effects from the target. If the spell's `status_name` is set, only that one status is removed; if it's empty, the cast removes every status in `battle.gd`'s `NEGATIVE_STATUSES` list (currently just `Poisoned`) — the "Cleanse" behavior. `NEGATIVE_STATUSES` is the single source of truth for "which statuses are debuffs"; when buff/positive statuses are added later, keep them OUT of that list so Cleanse doesn't strip them. Applied in `_apply_spell_cure_status` with the same channeling gesture as a heal, a pale-cyan "Cleansed" text popup (`CURE_STATUS_POPUP_COLOR`, overridable per-spell via `popup_color`), and a status-label refresh. MP is paid up-front, so cleansing a debuff-free target still spends MP. Default-targets the player (overridable to an enemy). The shipped spell is `resources/spells/cleanse.tres` (3 MP, empty `status_name`).
+
 **MP scaling**: Max MP is purely derived from Intelligence via the formula `intelligence × MP_PER_INT_LEVEL + equipment.mp_bonus`. The constant lives on `RPGState` and defaults to 2 (i.e. 2 MP per Intelligence point). The `max_mp` field is still present in `HeroStats` / `RPGState` but is no longer consulted by `get_effective_max_mp()` — it's left in the Resource shape in case a future class system wants a flat per-class MP cap on top of the Int scaling.
 
 **Battle flow when player picks Magic**:
@@ -280,13 +282,13 @@ Heal = max(1, floor((Intelligence + spell.power) × SPELL_HEAL_COEFFICIENT × Ra
    - **Sufficient MP**: stashed as `_pending_spell` → `TARGET_SELECT` (cursor defaults per `effect_kind` — damage spells go to first living enemy, future heals would go to player)
 4. Player confirms target → status tick → `_use_spell(spell, target_idx)`:
    - Pays MP up-front (even if effect is no-op like curing a non-existent status)
-   - Runs effect via `_apply_spell_damage` for DAMAGE or `_apply_spell_heal` for HEAL_HP; CURE_STATUS is still a placeholder
-   - Plays popup + cast gesture; damage spells lunge + camera shake (crits screen-flash), heal spells channel in place
+   - Runs effect via `_apply_spell_damage` (DAMAGE), `_apply_spell_heal` (HEAL_HP), or `_apply_spell_cure_status` (CURE_STATUS)
+   - Plays popup + cast gesture; damage spells lunge + camera shake (crits screen-flash), heal/cure spells channel in place
    - Transitions to ENEMY_TURN (or WIN/LOSE)
 
 **Cancel routing**: cancelling TARGET_SELECT during spell targeting returns to MAGIC_SELECT (pick a different spell). Cancelling MAGIC_SELECT returns to PLAYER_MENU. Status tick has not fired yet at either cancel point, so backing out is free (matches the item flow).
 
-**Adding a new spell**: drop a `.tres` into `res://resources/spells/`, fill in Inspector fields. Auto-discovered next battle. No code changes for DAMAGE spells; HEAL_HP / CURE_STATUS need a match arm in `_use_spell` before the placeholder message goes away.
+**Adding a new spell**: drop a `.tres` into `res://resources/spells/`, fill in Inspector fields. Auto-discovered next battle. DAMAGE, HEAL_HP, and CURE_STATUS are all wired — no code changes needed for new spells of those kinds. A brand-new effect kind needs an enum entry + a match arm in `_use_spell`.
 
 **Sandbox Max MP display**: the sandbox doesn't have a Max MP SpinBox (since it's purely derived). Instead there's a read-only "Max MP (derived): N" Label under the editable stats that updates via `stats_changed` when Intelligence or equipment changes.
 

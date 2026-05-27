@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="Spell" format=3]
+
+[ext_resource type="Script" path="res://resources/spell.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+spell_name = "CLEANSE"
+description = "Purges all negative status effects from the target."
+mp_cost = 3
+effect_kind = 2
+power = 0
+status_name = ""
+popup_color = Color(0.6, 0.95, 1.0, 1)

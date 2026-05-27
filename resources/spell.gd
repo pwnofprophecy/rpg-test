@@ -12,11 +12,10 @@
 #
 # Currently implemented effect_kinds:
 #   - DAMAGE: standard damage formula, A = intelligence + spell.power
-#
-# Reserved for future implementation (fields are present so the
-# Inspector workflow doesn't change when they go live):
-#   - HEAL_HP: power-scaled heal
-#   - CURE_STATUS: removes status_name
+#   - HEAL_HP: power-scaled heal (no crit, no defense)
+#   - CURE_STATUS: strips statuses. If status_name is set, removes just
+#     that one; if status_name is empty, removes ALL negative statuses
+#     (the "Cleanse" behavior — see battle.gd's NEGATIVE_STATUSES list).
 #
 # When extending, add the new EffectKind enum entry, then a match arm
 # in battle.gd::_use_spell.
@@ -26,8 +25,8 @@ extends Resource
 
 enum EffectKind {
 	DAMAGE,        # Damage formula with intelligence as A, spell.power as Power
-	HEAL_HP,       # Reserved — not yet implemented in battle.gd
-	CURE_STATUS,   # Reserved — not yet implemented in battle.gd
+	HEAL_HP,       # Power-scaled heal (no crit, no defense)
+	CURE_STATUS,   # Strips status_name (or all negative statuses if empty)
 }
 
 @export var spell_name: String = "SPELL"
@@ -39,8 +38,9 @@ enum EffectKind {
 # damage formula. HEAL_HP: how much to heal (placeholder; effect
 # not yet wired). Ignored by CURE_STATUS.
 @export var power: int = 0
-# Used by CURE_STATUS to specify which status the spell removes.
-# Empty/unused for DAMAGE / HEAL_HP.
+# Used by CURE_STATUS: the single status to remove. Leave EMPTY to make
+# the spell a "cleanse" that removes every negative status at once.
+# Ignored by DAMAGE / HEAL_HP.
 @export var status_name: String = ""
 
 # Color the damage popup uses. Lets each spell read distinctly by

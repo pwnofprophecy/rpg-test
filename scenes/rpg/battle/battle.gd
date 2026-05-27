@@ -329,6 +329,15 @@ const POISON_POPUP_COLOR: Color = Color(0.5, 1.0, 0.4)
 # How long the camera lingers on a status tick before the rest of the
 # turn proceeds. Long enough to read the message and see the popup.
 const STATUS_TICK_PAUSE: float = 1.2
+# The set of statuses considered HARMFUL. Cure-status spells with no
+# specific status_name (e.g. Cleanse) strip every status in this list
+# off the target. When positive/buff statuses get added later, leave
+# them OUT of this list so Cleanse doesn't accidentally remove them.
+# This is the single source of truth for "what counts as a debuff."
+const NEGATIVE_STATUSES: Array[String] = [STATUS_POISONED]
+# Popup/glow tint for cure-status casts when the spell doesn't override
+# popup_color. A clean pale cyan reads as "purify".
+const CURE_STATUS_POPUP_COLOR: Color = Color(0.6, 0.95, 1.0)
 
 
 # _ready is called once automatically when the scene first loads.
@@ -740,6 +749,16 @@ func _handle_target_select_input(event: InputEvent) -> void:
 # longer back out. Then dispatches to item use, spell cast, or
 # regular attack based on which pending action is set.
 func _confirm_target() -> void:
+	# Re-entrancy guard. The status tick below is awaited BEFORE we null
+	# _pending_spell / _pending_item, so without this a second confirm
+	# (fast double-click, overlapping click areas, etc.) could slip into
+	# the window and run a second action — e.g. the first confirm heals
+	# and clears the pending spell, then the second falls through to the
+	# regular-attack branch. Committing to PLAYER_ATTACK synchronously
+	# here means any re-entrant call bails immediately at this check.
+	if current_state != BattleState.TARGET_SELECT:
+		return
+	current_state = BattleState.PLAYER_ATTACK
 	_clear_target_indicators()
 	battle_ui.hide_target_cancel_button()
 	# Status tick fires AFTER target is confirmed. Bouncing around
@@ -908,22 +927,23 @@ func _on_enemy_input_event(_viewport: Node, event: InputEvent, _shape_idx: int, 
 
 
 # Mouse hover on the player's clickable area. Same role as the enemy
-# version but for self-targeting items. Only meaningful when an item
-# is pending — for regular attacks the player isn't a valid target.
+# version but for self-targeting. The player is only a valid target when
+# an item OR a spell is pending (e.g. a heal/cleanse) — we defer to
+# _valid_targets() so the mouse path stays in lockstep with keyboard nav.
 func _on_player_hovered() -> void:
 	if current_state != BattleState.TARGET_SELECT:
 		return
-	if _pending_item == null:
+	if not _valid_targets().has(TARGET_INDEX_PLAYER):
 		return
 	_set_target(TARGET_INDEX_PLAYER)
 
 
-# Mouse click on the player's clickable area. Confirms self-target
-# during item targeting; no-op outside that context.
+# Mouse click on the player's clickable area. Confirms self-target when
+# the player is a valid target (item or spell pending); no-op otherwise.
 func _on_player_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
 	if current_state != BattleState.TARGET_SELECT:
 		return
-	if _pending_item == null:
+	if not _valid_targets().has(TARGET_INDEX_PLAYER):
 		return
 	if not (event is InputEventMouseButton):
 		return
@@ -1533,16 +1553,16 @@ func _use_spell(spell: Spell, target_idx: int) -> void:
 	RPGState.stats_changed.emit()
 	battle_ui.update_player_mp(RPGState.mp)
 
-	# DAMAGE and HEAL_HP run their cast gesture + apply the effect.
-	# CURE_STATUS is still a no-op placeholder. The returned message is
-	# discarded in favor of the simple "casts X" line below.
+	# Each effect kind runs its own cast gesture + applies the effect.
+	# The returned message (if any) is discarded in favor of the simple
+	# "casts X" line below.
 	match spell.effect_kind:
 		Spell.EffectKind.DAMAGE:
 			await _apply_spell_damage(spell, target_is_player, target_enemy)
 		Spell.EffectKind.HEAL_HP:
 			await _apply_spell_heal(spell, target_is_player, target_enemy)
 		Spell.EffectKind.CURE_STATUS:
-			pass  # Reserved — not yet implemented.
+			await _apply_spell_cure_status(spell, target_is_player, target_enemy)
 
 	# Simple, uniform message.
 	battle_ui.set_message("%s casts %s" % [RPGState.get_display_name(), spell.spell_name])
@@ -1688,6 +1708,61 @@ func _apply_spell_heal(spell: Spell, target_is_player: bool, target_enemy: Battl
 	DamagePopup.spawn_status(
 		self, target_enemy.sprite.global_position + POPUP_OFFSET,
 		actual, popup_color)
+
+
+# Cure-status effect handler. Same "channeling" gesture as a heal — glow
+# + hold, NO lunge, then the glow fades — followed by stripping statuses
+# off the target.
+#
+# Which statuses get removed depends on spell.status_name:
+#   - empty  → removes EVERY status in NEGATIVE_STATUSES (the "Cleanse"
+#              behavior the player wants: purge all debuffs at once).
+#   - a name → removes only that one status (lets a future single-cure
+#              spell be authored as data with no code change).
+# Positive/buff statuses are never touched by the empty-name path because
+# they're deliberately kept out of NEGATIVE_STATUSES.
+#
+# MP is already paid in _use_spell, so a Cleanse cast on a clean target
+# still spends MP (classic JRPG "wasted cast" behavior) — no refund.
+func _apply_spell_cure_status(spell: Spell, target_is_player: bool, target_enemy: BattleEnemy) -> void:
+	var popup_color: Color = spell.popup_color
+	if popup_color == Color.WHITE:
+		popup_color = CURE_STATUS_POPUP_COLOR
+	var glow_color := Color(
+		popup_color.r * CAST_GLOW_INTENSITY,
+		popup_color.g * CAST_GLOW_INTENSITY,
+		popup_color.b * CAST_GLOW_INTENSITY,
+		1.0)
+
+	# Channeling gesture: glow + hold, then fade. No lunge for a cure.
+	await _cast_glow_to(glow_color)
+	await get_tree().create_timer(CAST_GLOW_HOLD_DURATION).timeout
+	_cast_glow_to(Color.WHITE)
+
+	# Decide which statuses this cast targets.
+	var to_remove: Array[String] = []
+	if spell.status_name != "":
+		to_remove.append(spell.status_name)
+	else:
+		to_remove = NEGATIVE_STATUSES.duplicate()
+
+	# Apply the removals to the right combatant, then refresh that
+	# combatant's status label so the [Status] panel updates immediately.
+	var target_pos: Vector2
+	if target_is_player:
+		for s in to_remove:
+			RPGState.remove_status(s)  # no-op if not present; emits on change
+		battle_ui.set_player_statuses(RPGState.status_effects)
+		target_pos = player_sprite.global_position
+	else:
+		for s in to_remove:
+			target_enemy.statuses.erase(s)  # erase is a no-op if absent
+		_refresh_enemy_status_label(target_enemy)
+		target_pos = target_enemy.sprite.global_position
+
+	# A small sparkle popup so the cast reads visually even when nothing
+	# was actually cured. spawn_text shows a word instead of a number.
+	DamagePopup.spawn_text(self, target_pos + POPUP_OFFSET, "Cleansed", popup_color)
 
 
 # Computes a heal amount: (Intelligence + Power) × SPELL_HEAL_COEFFICIENT,
