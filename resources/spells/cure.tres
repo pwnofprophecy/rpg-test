@@ -9,4 +9,4 @@ description = "Heals your wounds."
 mp_cost = 4
 effect_kind = 1
 power = 4
-popup_color = Color(0.9442255, 0.87471145, 0.6789618, 1)
+popup_color = Color(0.99429256, 0.98678666, 0.9655749, 1)

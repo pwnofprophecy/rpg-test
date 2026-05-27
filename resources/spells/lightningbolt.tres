@@ -8,4 +8,4 @@ spell_name = "LIGHTNINGBOLT"
 description = "A bolt of lightning."
 mp_cost = 3
 power = 4
-popup_color = Color(0.62307584, 0.5282166, 0.24907437, 1)
+popup_color = Color(0.7840234, 0.6713275, 7.70092e-07, 1)

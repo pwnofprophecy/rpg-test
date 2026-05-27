@@ -101,6 +101,8 @@ const RANDOM_LOW: float = 0.85            # Lower bound of variance roll
 const RANDOM_HIGH: float = 1.0            # Upper bound of variance roll
 const LUCK_TO_CRIT_PERCENT: float = 1.0   # Crit chance = luck × this
 const MAX_CRIT_CHANCE: float = 0.5        # Hard cap on crit chance (50%)
+const VICTORY_JUMP_HEIGHT: float = 40.0    # how high each hop goes (pixels)
+const VICTORY_JUMP_DURATION: float = 0.4  # seconds per up OR down
 
 # Healing spells restore (Intelligence + spell.power) × this coefficient,
 # with the same crit + random variance as damage. No defense applies —
@@ -1822,6 +1824,7 @@ func _run_sub_menu() -> void:
 func _run_win() -> void:
 	battle_ui.hide_menu()
 	battle_ui.set_message("Victory is yours!")
+	_play_victory_jump()	
 
 
 # Battle is over — player loses. Shows the death message and waits for
@@ -1915,6 +1918,30 @@ func _item_hop_down() -> void:
 		.set_trans(Tween.TRANS_QUAD) \
 		.set_ease(Tween.EASE_IN)
 
+# Victory celebration: the player sprite bounces up and down a few
+# times. Fire-and-forget — called from _run_win. Uses the same
+# set_meta("origin") rest-position pattern as the lunge / item hop so
+# it always returns to the sprite's true home.
+func _play_victory_jump() -> void:
+	if player_sprite == null:
+		return
+	if not player_sprite.has_meta("origin"):
+		player_sprite.set_meta("origin", player_sprite.position)
+	var origin: Vector2 = player_sprite.get_meta("origin")
+	var top: Vector2 = origin - Vector2(0, VICTORY_JUMP_HEIGHT)
+
+	# set_loops() with no argument repeats the up+down forever. It stops
+	# automatically when this Battle node is freed — which happens when
+	# the player confirms "Victory is yours!" and the scene unloads.
+	var tween := create_tween().set_loops()
+	# Up — float to the peak, decelerating.
+	tween.tween_property(player_sprite, "position", top, VICTORY_JUMP_DURATION) \
+		.set_trans(Tween.TRANS_QUAD) \
+		.set_ease(Tween.EASE_OUT)
+	# Down — fall back, accelerating.
+	tween.tween_property(player_sprite, "position", origin, VICTORY_JUMP_DURATION) \
+		.set_trans(Tween.TRANS_QUAD) \
+		.set_ease(Tween.EASE_IN)
 
 # Tweens the player sprite's modulate to `color` over CAST_GLOW_FADE_DURATION.
 # Used by the spell cast gesture: await it with the bright glow color
