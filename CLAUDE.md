@@ -359,6 +359,13 @@ End-of-battle states (`WIN`, `LOSE`, `ESCAPE`) display a message and wait for th
 
 **Toggling encounters for testing**: `rpg_overworld.gd` exposes `encounters_enabled` as an `@export bool` (default true). Flip it in the Inspector to disable encounters for a play session, or press **F4** at runtime to toggle on the fly (debug action `debug_toggle_encounters`). The stepper also auto-pauses while the dialogue box is open so conversations don't accidentally rack up steps.
 
+## Mod System (groundwork)
+Mods are floppy-disk powerups the player finds in the Real World; each is registered in `ModManager` (`autoloads/mod_manager.gd`) with `found` / `active` state and broadcasts `mod_found` / `mod_activated` / `mod_deactivated`. Gate a feature behind a mod with `ModManager.is_active("<id>")`. The combat sandbox can toggle any registered mod (it calls `mark_found` + `activate_mod` / `deactivate_mod`, bypassing the find-it-first gate), so `is_active` reflects the sandbox checkboxes for testing.
+
+**First gated feature — the Run command (`run` mod / `RUN.EXE`)**: the battle action menu is built dynamically from mod state. `battle_ui.gd` holds `_ALL_ACTIONS = ["attack","magic","item","run"]` (top→bottom list order) and `_ACTION_MODS = {"run": "run"}` mapping a gated action to its required mod. `show_menu()` calls `_build_actions()`, which filters `_ALL_ACTIONS` through the gates into the runtime `_actions` list; actions whose mod isn't active are dropped. The menu is a `VBoxContainer` (`MenuBox/MenuList`) of four `Label` slots; `_update_cursor()` renders `_actions[i]` into slot `i` for the first N slots and hides any leftovers, and ALL cursor navigation / mouse clicks index into `_actions` — so a hidden Run button is genuinely absent (can't be navigated to or clicked), not just visually dimmed. Navigation is plain Up/Down with wrap-around (same as the Magic / Item sub-menus), so any count of actions works without special-casing. Because `_actions` is compacted and the VBox lays out only visible children, this generalizes: gating a *middle* action (e.g. Item later) also works — the remaining actions slide up into the upper slots and the menu's footprint shrinks naturally with no empty cells.
+
+**Gating a new battle action behind a mod**: add a `"<action>": "<mod_id>"` entry to `_ACTION_MODS` in `battle_ui.gd`. No other code changes. (Default mod state is inactive, so until the player finds + activates `RUN.EXE` — or toggles it in the sandbox — the Run command won't appear in any battle.)
+
 ## Debug Keys
 | Key | Action | Action name |
 |---|---|---|

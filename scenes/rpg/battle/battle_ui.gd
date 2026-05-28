@@ -103,15 +103,19 @@ var magic_menu_spells: Array = []  # parallel to magic_menu_labels — Array[Spe
 var magic_menu_active: bool = false
 var magic_menu_cursor: int = 0
 
-# An array holding references to the four menu option labels,
-# in the order they appear in the 2x2 grid:
-#   [0: Attack]  [1: Cast]
-#   [2: Item  ]  [3: Run ]
+# An array holding references to the four menu option labels, in the
+# order they appear in the vertical menu (top → bottom):
+#   [0: Attack]
+#   [1: Cast  ]   ← node name kept for historical reasons; shows "Magic"
+#   [2: Item  ]
+#   [3: Run   ]   ← hidden when RUN.EXE is inactive
+# Parent VBoxContainer is `MenuBox/MenuList`. Children stack vertically;
+# `_update_cursor()` hides leftover slots when mods gate an action out.
 @onready var menu_labels: Array[Label] = [
-	$MenuBox/MenuGrid/AttackLabel,
-	$MenuBox/MenuGrid/CastLabel,
-	$MenuBox/MenuGrid/ItemLabel,
-	$MenuBox/MenuGrid/RunLabel,
+	$MenuBox/MenuList/AttackLabel,
+	$MenuBox/MenuList/CastLabel,
+	$MenuBox/MenuList/ItemLabel,
+	$MenuBox/MenuList/RunLabel,
 ]
 
 # How long an HP bar takes to "drain" from its old value to the new one.
@@ -121,17 +125,44 @@ var magic_menu_cursor: int = 0
 const HP_DRAIN_DURATION: float = 0.4
 
 # --- Menu State ---
-var cursor_index: int = 0    # Which menu option is currently highlighted (0–3)
+var cursor_index: int = 0    # Which menu option is currently highlighted (0 .. _actions.size()-1)
 var menu_active: bool = false      # True when the player can navigate the main menu
 var sub_menu_active: bool = false  # True when the player is inside Cast or Item
 
-# The action strings that match each menu slot by index.
-# Index 0 = "attack", 1 = "magic", 2 = "item", 3 = "run".
-# "const" means this list never changes at runtime.
-# Note: the corresponding label node in the .tscn is still named
-# "CastLabel" for historical reasons — the user-visible text comes
-# from the capitalized action string here, not the node name.
-const ACTIONS: Array[String] = ["attack", "magic", "item", "run"]
+# The full set of action strings in grid order. The matching label node
+# in the .tscn is named "CastLabel" for historical reasons — the visible
+# text comes from the capitalized action string here, not the node name.
+#   grid: [0: attack] [1: magic]
+#         [2: item  ] [3: run  ]
+const _ALL_ACTIONS: Array[String] = ["attack", "magic", "item", "run"]
+
+# Actions that are gated behind a mod: the action only appears in the
+# menu when that mod is currently active in ModManager. Actions NOT in
+# this dict (attack, magic, item) are always available. Add an entry
+# here to gate a new action behind a mod — no other code changes needed.
+const _ACTION_MODS: Dictionary = {
+	"run": "run",   # Run command requires RUN.EXE to be active.
+}
+
+# The actions actually available RIGHT NOW, rebuilt from _ALL_ACTIONS +
+# mod state every time the command menu opens (see show_menu). The menu
+# renders one label slot per entry, in order, and hides leftover slots.
+# All cursor navigation and selection indexes into THIS list, not
+# _ALL_ACTIONS, so a hidden Run button is genuinely absent — you can't
+# navigate to it or click it.
+var _actions: Array[String] = []
+
+
+# Builds the available-actions list by filtering _ALL_ACTIONS through
+# the mod gates. Called by show_menu each turn so toggling a mod between
+# battles (or between turns) is reflected immediately.
+func _build_actions() -> Array[String]:
+	var result: Array[String] = []
+	for action in _ALL_ACTIONS:
+		if _ACTION_MODS.has(action) and not ModManager.is_active(_ACTION_MODS[action]):
+			continue  # Gated action whose mod isn't active — skip it.
+		result.append(action)
+	return result
 
 
 # Wires mouse support onto the menu labels. Labels default to
@@ -240,6 +271,10 @@ func _apply_status_label(label: Label, statuses: Array) -> void:
 func _on_menu_label_hovered(idx: int) -> void:
 	if not menu_active:
 		return
+	# Ignore hovers on hidden/leftover label slots (e.g. the Run slot
+	# when RUN.EXE is inactive) so the cursor can't park on a blank.
+	if idx >= _actions.size():
+		return
 	cursor_index = idx
 	_update_cursor()
 
@@ -254,10 +289,13 @@ func _on_menu_label_input(event: InputEvent, idx: int) -> void:
 		return
 	if not _is_left_click(event):
 		return
+	# Hidden/leftover slot — nothing to select here.
+	if idx >= _actions.size():
+		return
 	cursor_index = idx
 	_update_cursor()
 	menu_active = false
-	action_selected.emit(ACTIONS[idx])
+	action_selected.emit(_actions[idx])
 	get_viewport().set_input_as_handled()
 
 
@@ -333,24 +371,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	# so we only refresh the cursor and consume the event when something actually changed.
 	var handled := true
 
-	if event.is_action_pressed("ui_right") and cursor_index % 2 == 0:
-		# Move right — only if we're in the LEFT column (index 0 or 2).
-		# "% 2 == 0" checks if the index is even (left column).
-		cursor_index += 1
-	elif event.is_action_pressed("ui_left") and cursor_index % 2 == 1:
-		# Move left — only if we're in the RIGHT column (index 1 or 3).
-		# "% 2 == 1" checks if the index is odd (right column).
-		cursor_index -= 1
-	elif event.is_action_pressed("ui_down") and cursor_index < 2:
-		# Move down — only if we're in the TOP row (index 0 or 1).
-		cursor_index += 2  # Add 2 to jump from top row to bottom row
-	elif event.is_action_pressed("ui_up") and cursor_index >= 2:
-		# Move up — only if we're in the BOTTOM row (index 2 or 3).
-		cursor_index -= 2  # Subtract 2 to jump from bottom row to top row
+	# Vertical list navigation. Up/Down wrap around the top/bottom of
+	# the list — matches the Magic and Item sub-menus so the player only
+	# has to learn one navigation pattern across all battle menus.
+	# Left/Right do nothing in a single-column list. The count > 0 guard
+	# is defensive; show_menu always builds at least one action (Attack
+	# is never gated).
+	var count: int = _actions.size()
+	if event.is_action_pressed("ui_down") and count > 0:
+		cursor_index = (cursor_index + 1) % count
+	elif event.is_action_pressed("ui_up") and count > 0:
+		cursor_index = (cursor_index - 1 + count) % count
 	elif event.is_action_pressed("ui_accept"):
 		# Player confirmed their selection — disable the menu and report the choice
 		menu_active = false
-		action_selected.emit(ACTIONS[cursor_index])
+		action_selected.emit(_actions[cursor_index])
 	else:
 		handled = false  # No relevant key was pressed
 
@@ -363,10 +398,16 @@ func _unhandled_input(event: InputEvent) -> void:
 # The selected option gets a ">" prefix; the others get spaces to keep alignment.
 func _update_cursor() -> void:
 	for i in menu_labels.size():
-		if i == cursor_index:
-			menu_labels[i].text = "> " + ACTIONS[i].capitalize()  # e.g. "> Attack"
+		if i < _actions.size():
+			# Occupied slot — show the action with a ">" when selected.
+			var prefix: String = "> " if i == cursor_index else "  "
+			menu_labels[i].text = prefix + _actions[i].capitalize()  # e.g. "> Attack"
+			menu_labels[i].visible = true
 		else:
-			menu_labels[i].text = "  " + ACTIONS[i].capitalize()  # e.g. "  Cast"
+			# Leftover slot (e.g. Run when RUN.EXE is inactive) — hide it
+			# so the grid shows only the available commands.
+			menu_labels[i].text = ""
+			menu_labels[i].visible = false
 
 
 # Updates the text displayed in the bottom text box.
@@ -540,6 +581,11 @@ func _update_bar_color(bar: ProgressBar) -> void:
 # Makes the action menu visible and enables keyboard navigation.
 # Also resets the cursor back to "Attack" (index 0) each time it opens.
 func show_menu() -> void:
+	# Rebuild the available-actions list from current mod state so a mod
+	# toggled on/off (in the sandbox, or by finding a floppy) takes effect
+	# the next time the menu opens. cursor_index resets to 0 (Attack),
+	# which is always present, so it's always a valid slot.
+	_actions = _build_actions()
 	menu_box.visible = true
 	menu_active = true
 	cursor_index = 0
