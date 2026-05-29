@@ -29,11 +29,22 @@ enum EffectKind {
 	CURE_STATUS,   # Strips status_name (or all negative statuses if empty)
 }
 
+# Elemental tag for spells. NONE means "untyped" — the right default for
+# HEAL_HP / CURE_STATUS spells (they don't deal damage) and for any
+# DAMAGE spell you want to leave neutral. Default keeps existing .tres
+# files loading unchanged. No gameplay effect yet — this is plumbing
+# for the upcoming damage-type mod (resistances, weaknesses, etc.).
+enum MagicDamageType { NONE, FIRE, ICE, LIGHTNING, WATER, HOLY, FORCE }
+
 @export var spell_name: String = "SPELL"
 @export var description: String = ""
 @export var mp_cost: int = 5
 
 @export var effect_kind: EffectKind = EffectKind.DAMAGE
+# Elemental damage type. Set per-spell in the Inspector (e.g. Firebolt
+# = FIRE, future ice lance = ICE). Defaults to NONE — appropriate for
+# heals/cures and any untyped damage spell. No gameplay effect yet.
+@export var damage_type: MagicDamageType = MagicDamageType.NONE
 # DAMAGE: weapon-power-style bonus added to intelligence in the
 # damage formula. HEAL_HP: how much to heal (placeholder; effect
 # not yet wired). Ignored by CURE_STATUS.

@@ -28,6 +28,15 @@ extends Resource
 # Which slot this item occupies. The Hero can have one of each.
 enum Slot { WEAPON, ARMOR, ACCESSORY }
 
+# Physical damage category for weapons. Only meaningful when slot ==
+# WEAPON — leave at NONE for armor / accessories. NONE on a weapon
+# means "untyped" (e.g. fists, a debug weapon) and is also the default
+# so existing .tres files load with no required changes. The field has
+# no gameplay effect yet — it's plumbing for an upcoming damage-type
+# mod (resistances, weaknesses, etc.). Defining it now means every
+# weapon you author can be tagged from the moment it's created.
+enum WeaponDamageType { NONE, PIERCING, SLASHING, BLUDGEONING }
+
 # Display name shown in equipment menus and the sandbox dropdowns.
 @export var item_name: String = "ITEM"
 # Which slot this piece occupies. Determines which RPGState field
@@ -36,6 +45,10 @@ enum Slot { WEAPON, ARMOR, ACCESSORY }
 # Flavor / tooltip text. Not currently displayed but useful when shops
 # and equipment menus arrive.
 @export var description: String = ""
+# Physical damage type — only meaningful on WEAPON slot items. Defaults
+# to NONE so armor/accessories (and untyped weapons) stay neutral. No
+# gameplay effect yet; reserved for the damage-type mod.
+@export var weapon_damage_type: WeaponDamageType = WeaponDamageType.NONE
 
 # --- Stat bonuses (added to base stats while equipped) ---
 # Mirrors HeroStats / RPGState fields one-for-one so the bonus lookup

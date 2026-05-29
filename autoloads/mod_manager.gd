@@ -31,8 +31,10 @@ func _ready() -> void:
 	# "found" stays false until the player picks up the floppy disk in the Real World.
 	# "run"   — found in the Bathroom shower. Makes the Run command in battle work.
 	# "items" — reserved for Phase 3 (Kitchen Sink defeat). Unlocks the item menu.
+	# "magic" — unlocks the Magic command in battle.
 	register_mod("run", "RUN.EXE", "Makes the Run command in battle actually work.")
 	register_mod("items", "ITEMS.EXE", "Unlocks the item menu in battle. Requires defeating Kitchen Sink.")
+	register_mod("magic", "MAGIC.EXE", "Unlocks the Magic command in battle.")
 
 
 # Register a new mod with the manager. Call this during startup (from mod

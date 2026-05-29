@@ -58,7 +58,15 @@ const _STAT_FIELDS: Array[Dictionary] = [
 	{"label": "XP",           "prop": "xp",            "min": 0, "max": 999999, "effective": ""},
 	{"label": "Gold",         "prop": "gold",          "min": 0, "max": 999999, "effective": ""},
 ]
-
+# Mods that should be ON by default whenever the sandbox is opened, so
+# you don't have to manually toggle them every time you want to test a
+# full-feature battle. Toggle a mod OFF in the sandbox UI to opt out
+# for the current session — it'll re-activate on the next F5 entry.
+const _SANDBOX_DEFAULT_ACTIVE_MODS: Array[String] = [
+	"run",
+	"items",
+	"magic",
+]
 # Equipment slot definitions. The sandbox builds one dropdown per
 # entry. `slot` is the Equipment.Slot enum value used by RPGState's
 # equip()/unequip()/get_equipped() helpers.
@@ -202,6 +210,13 @@ func _ready() -> void:
 	_enemy_choices = _scan_enemies_folder()
 	_populate_enemy_slots()
 	_populate_enemy_status_section()
+		# Default-on mods: activate them before the checkbox row is built so
+	# the boxes render already checked and the launched battle inherits
+	# them. The checkbox build loop reads ModManager.is_active() to seed
+	# initial state, so the order matters — do this first.
+	for mod_id in _SANDBOX_DEFAULT_ACTIVE_MODS:
+		ModManager.mark_found(mod_id)
+		ModManager.activate_mod(mod_id)
 	_populate_mod_toggles()
 
 	start_battle_button.pressed.connect(_on_start_battle_pressed)

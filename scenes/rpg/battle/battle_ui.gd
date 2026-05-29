@@ -141,7 +141,9 @@ const _ALL_ACTIONS: Array[String] = ["attack", "magic", "item", "run"]
 # this dict (attack, magic, item) are always available. Add an entry
 # here to gate a new action behind a mod — no other code changes needed.
 const _ACTION_MODS: Dictionary = {
-	"run": "run",   # Run command requires RUN.EXE to be active.
+	"magic": "magic",  # Magic command requires MAGIC.EXE to be active.
+	"item":  "items",  # Item command requires ITEMS.EXE to be active.
+	"run":   "run",    # Run command requires RUN.EXE to be active.
 }
 
 # The actions actually available RIGHT NOW, rebuilt from _ALL_ACTIONS +
@@ -178,9 +180,20 @@ func _build_actions() -> Array[String]:
 # The bound `i` argument tells each handler which menu slot it belongs
 # to without needing to look up "which label fired this signal".
 func _ready() -> void:
+	# Build the two row backplates once and reuse them across all rows.
+	_menu_selected_stylebox = _make_menu_stylebox(true)
+	_menu_normal_stylebox = _make_menu_stylebox(false)
+
 	for i in menu_labels.size():
 		var label: Label = menu_labels[i]
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
+		# Force each label to stretch to the full VBox width so the
+		# button-like backplate fills the whole row (and so the hover
+		# target is the entire row, not just the text bounds).
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# Start with the unselected (transparent) backplate; _update_cursor
+		# swaps in the gold one on the currently-selected row.
+		label.add_theme_stylebox_override("normal", _menu_normal_stylebox)
 		label.mouse_entered.connect(_on_menu_label_hovered.bind(i))
 		label.gui_input.connect(_on_menu_label_input.bind(i))
 
@@ -396,16 +409,66 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # Redraws all four menu labels to show which one is currently selected.
 # The selected option gets a ">" prefix; the others get spaces to keep alignment.
+const _MENU_NORMAL_COLOR: Color = Color.WHITE
+# Gold matches the "crit" / "selected" color used elsewhere in the UI
+# (DamagePopup.CRIT_COLOR), so a hovered/selected action reads as
+# "active" at a glance.
+const _MENU_SELECTED_COLOR: Color = Color(1.0, 0.85, 0.2)
+# Translucent gold backplate behind the selected row. The alpha is low
+# enough to read as "this row is highlighted" without overpowering the
+# panel background underneath.
+const _MENU_SELECTED_BG: Color = Color(1.0, 0.85, 0.2, 0.20)
+# Inner padding on both stylebox variants. Matching margins on the
+# selected/normal variants means the text doesn't jump when the
+# stylebox swaps on hover.
+const _MENU_PAD_X: int = 10
+const _MENU_PAD_Y: int = 4
+# Slight rounded corners give the row a button feel without screaming.
+const _MENU_CORNER_RADIUS: int = 4
+
+# Built once in _ready and swapped per row in _update_cursor. Stored as
+# members so we're not allocating a new StyleBox every frame.
+var _menu_selected_stylebox: StyleBox = null
+var _menu_normal_stylebox: StyleBox = null
+
+
+# Constructs the row stylebox used to give each menu item its button-
+# like backplate. `selected` true → translucent gold fill; false → fully
+# transparent (so the row reads as "blank" but keeps identical padding
+# so the text doesn't shift when the highlight comes and goes).
+func _make_menu_stylebox(selected: bool) -> StyleBox:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = _MENU_SELECTED_BG if selected else Color(0, 0, 0, 0)
+	sb.content_margin_left = _MENU_PAD_X
+	sb.content_margin_right = _MENU_PAD_X
+	sb.content_margin_top = _MENU_PAD_Y
+	sb.content_margin_bottom = _MENU_PAD_Y
+	sb.corner_radius_top_left = _MENU_CORNER_RADIUS
+	sb.corner_radius_top_right = _MENU_CORNER_RADIUS
+	sb.corner_radius_bottom_left = _MENU_CORNER_RADIUS
+	sb.corner_radius_bottom_right = _MENU_CORNER_RADIUS
+	return sb
+
+
+# Redraws all the menu labels: the currently-selected one (either the
+# keyboard cursor or whatever the mouse is hovering over) gets a color
+# highlight; the others render in the default color. Leftover slots
+# beyond _actions.size() are hidden so the menu compacts cleanly.
 func _update_cursor() -> void:
 	for i in menu_labels.size():
 		if i < _actions.size():
-			# Occupied slot — show the action with a ">" when selected.
-			var prefix: String = "> " if i == cursor_index else "  "
-			menu_labels[i].text = prefix + _actions[i].capitalize()  # e.g. "> Attack"
+			menu_labels[i].text = _actions[i].capitalize()  # e.g. "Attack"
+			# Text color + row backplate both swap together so the
+			# selected row reads as a lit-up button.
+			var is_selected: bool = (i == cursor_index)
+			var color: Color = _MENU_SELECTED_COLOR if is_selected else _MENU_NORMAL_COLOR
+			var sb: StyleBox = _menu_selected_stylebox if is_selected else _menu_normal_stylebox
+			menu_labels[i].add_theme_color_override("font_color", color)
+			menu_labels[i].add_theme_stylebox_override("normal", sb)
 			menu_labels[i].visible = true
 		else:
 			# Leftover slot (e.g. Run when RUN.EXE is inactive) — hide it
-			# so the grid shows only the available commands.
+			# so the list shows only the available commands.
 			menu_labels[i].text = ""
 			menu_labels[i].visible = false
 

@@ -5,8 +5,32 @@
 [ext_resource type="Texture2D" uid="uid://6nhjmtfcu3l" path="res://assets/sprites/player_back.svg" id="3"]
 [ext_resource type="Texture2D" uid="uid://f8udcxg2fwct" path="res://assets/sprites/enemy_placeholder.svg" id="4"]
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_iqryk"]
+bg_color = Color(0.60038817, 0.60038817, 0.38260242, 1)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(1.353256, 1.353256, 1.353256, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_d8x32"]
 bg_color = Color(0.22745098, 0.43137255, 0.9411765, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_6a33b"]
+bg_color = Color(0, 0, 0.4963569, 1)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(1.2610514, 1.1587777, 0.7977378, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
 
 [node name="Battle" type="Node2D" unique_id=335743338]
 script = ExtResource("1")
@@ -34,6 +58,7 @@ offset_left = 520.0
 offset_top = 500.0
 offset_right = 740.0
 offset_bottom = 630.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_iqryk")
 
 [node name="Stats" type="VBoxContainer" parent="BattleUI/PlayerStatusArea" unique_id=2036140899]
 layout_mode = 2
@@ -147,6 +172,7 @@ offset_left = -380.0
 offset_top = -160.0
 grow_horizontal = 0
 grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_6a33b")
 
 [node name="MenuList" type="VBoxContainer" parent="BattleUI/MenuBox" unique_id=1596324814]
 layout_mode = 2
