@@ -130,6 +130,13 @@ var _stat_editors: Dictionary = {}
 # stat rows.
 var _max_mp_readout: Label = null
 
+# Read-only Label showing the computed "total XP" the character has
+# notionally earned — sum of XP thresholds for completed levels plus
+# current xp-toward-next. Reads through RPGState.get_total_xp_for_curve()
+# so it stays coherent with manual Level / XP SpinBox edits in the
+# sandbox (both fields contribute). Refreshed via stats_changed.
+var _xp_total_readout: Label = null
+
 # Map of stat property name → { "label": Label, "method": String }.
 # The label sits next to the SpinBox and shows " → N" when the
 # effective value (after equipment) differs from base. Updated on
@@ -283,6 +290,15 @@ func _populate_player_stats() -> void:
 	player_stats_container.add_child(_max_mp_readout)
 	_refresh_max_mp_readout()
 
+	# Lifetime XP readout — total across every battle since the last
+	# Reset to Defaults. Read-only by intent; a SpinBox here would
+	# invite players to type in their own "progress."
+	_xp_total_readout = Label.new()
+	_xp_total_readout.add_theme_font_size_override("font_size", 16)
+	_xp_total_readout.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+	player_stats_container.add_child(_xp_total_readout)
+	_refresh_xp_total_readout()
+
 	# Equipment section sits inside the same Player Stats column.
 	# Visual divider + header + three slot dropdowns (Weapon, Armor,
 	# Accessory). Built programmatically so adding a new slot type
@@ -332,6 +348,10 @@ func _refresh_stat_editors() -> void:
 	# refreshes whenever stats_changed fires.
 	_refresh_max_mp_readout()
 
+	# Lifetime XP readout — bumped by RPGState.add_xp which emits
+	# stats_changed, so this refresh keeps it current after a battle.
+	_refresh_xp_total_readout()
+
 	# Enemy slot readouts include matchup metrics (average damage,
 	# turns-to-KO) that depend on the player's effective stats, so
 	# they refresh whenever player stats might have changed.
@@ -363,6 +383,15 @@ func _refresh_max_mp_readout() -> void:
 	if _max_mp_readout == null:
 		return
 	_max_mp_readout.text = "  Max MP (derived): %d" % RPGState.get_effective_max_mp()
+
+
+# Updates the Current XP Label. Reads the computed total (level + xp
+# fed through the curve) so it stays coherent whether XP came from
+# add_xp() during a battle OR from a manual Level / XP SpinBox edit.
+func _refresh_xp_total_readout() -> void:
+	if _xp_total_readout == null:
+		return
+	_xp_total_readout.text = "  Current XP: %d" % RPGState.get_total_xp_for_curve()
 
 
 # Updates the " → N" label next to each equipment-affected stat. Shows

@@ -35,6 +35,61 @@ const _TEMPLATE: Resource = preload("res://resources/hero_stats.tres")
 # formula. Tuning this knob globally rescales all spellcasting capacity.
 const MP_PER_INT_LEVEL: int = 2
 
+# --- Leveling / XP tuning ---
+# XP needed to advance from `level` to `level+1` is XP_PER_LEVEL *
+# current_level. Linear curve — going to level 2 costs 100, level 3
+# costs another 200, etc. Tune this single constant to globally
+# rescale the leveling pace.
+const XP_PER_LEVEL: int = 100
+# Per-level automatic stat-boost overrides. Keyed by the NEW level
+# reached (e.g. `5` is the package applied when arriving at level 5).
+# Levels NOT listed here fall back to _DEFAULT_LEVEL_BOOSTS below.
+# This is the authoring sweet spot for "milestone" levels — define
+# just the levels that should feel special and let the rest use the
+# default. Reaching a milestone level via a multi-level XP jump still
+# applies its custom package (each level is processed individually
+# inside add_xp's loop).
+#
+# Field names match RPGState properties so _apply_auto_boosts can use
+# set()/get() generically. luck is normally omitted (gained only via
+# bonus picks) and max_mp is always omitted (derived from intelligence
+# via MP_PER_INT_LEVEL).
+#
+# Example milestone packages (uncomment / edit to taste):
+#   5:  {"max_hp": 5, "attack": 2, "defense": 1, "speed": 1, "intelligence": 1},
+#   10: {"max_hp": 8, "attack": 2, "defense": 2, "speed": 2, "intelligence": 2},
+#   20: {"max_hp": 12, "attack": 3, "defense": 3, "speed": 2, "intelligence": 3, "luck": 1},
+const LEVEL_UP_STAT_BOOSTS: Dictionary = {
+}
+
+# Fallback package applied at every level not explicitly listed in
+# LEVEL_UP_STAT_BOOSTS above. Edit this to change the baseline growth
+# rate that ordinary levels use.
+const _DEFAULT_LEVEL_BOOSTS: Dictionary = {
+	"max_hp": 3,
+	"attack": 1,
+	"defense": 1,
+	"speed": 1,
+	"intelligence": 1,
+}
+# Stats the player can spend bonus picks on at level-up. All six core
+# combat stats — including luck (the only growth path for it) and
+# max_hp (so a "tank" build can dump picks into HP).
+const BONUS_PICK_STATS: Array[String] = [
+	"max_hp",
+	"attack",
+	"defense",
+	"speed",
+	"intelligence",
+	"luck",
+]
+# How many bonus picks per level-up. Each pick adds +1 to a stat from
+# BONUS_PICK_STATS. Multiple picks can stack on a single stat (so all
+# 2 picks could go into Attack for a +2). Multi-level-ups multiply
+# this — the UI shows one overlay per gained level, each requesting
+# BONUS_PICKS_PER_LEVEL picks.
+const BONUS_PICKS_PER_LEVEL: int = 2
+
 # --- Runtime state (mutated during play) ---
 # character_name starts empty as a sentinel for "haven't done name entry
 # yet" — rpg_overworld checks this on _ready to decide whether to show the
@@ -65,8 +120,19 @@ var luck: int = 0
 var base_power: int = 0
 
 var level: int = 0
+# `xp` is XP TOWARD THE NEXT LEVEL — it resets to 0 (or the leftover
+# remainder) every time the player levels up. The "lifetime total XP"
+# display in the sandbox is COMPUTED from level + xp via
+# get_total_xp_for_curve() — no separate counter to keep in sync.
 var xp: int = 0
 var gold: int = 0
+
+# Queue of pending level-ups awaiting bonus-pick allocation. Each entry
+# is the OLD level number for that level-up (so the overlay can show
+# "LEVEL N → LEVEL N+1"). Drained one entry at a time as the player
+# confirms each level's picks via the level-up overlay. Battle.gd uses
+# has_pending_level_ups() after WIN to drive the overlay loop.
+var pending_level_ups: Array[int] = []
 
 # Array[String] — active status effect tags. Empty by default.
 # Use the add_status / remove_status / has_status helpers rather than
@@ -92,6 +158,14 @@ var inventory: Dictionary = {}
 # Emitted whenever any stat or status effect changes. UI (HUD, battle menus)
 # can connect and refresh without polling.
 signal stats_changed
+
+# Emitted once per level gained (so a multi-level XP grant fires this
+# multiple times, in order). `new_level` is the level just reached;
+# `auto_boosts` is a copy of the stat boosts that were just applied
+# (a dict matching LEVEL_UP_STAT_BOOSTS' shape). The bonus picks for
+# this level are NOT in the dict — they're queued via
+# pending_level_ups for the player to choose via the overlay.
+signal leveled_up(new_level: int, auto_boosts: Dictionary)
 
 
 func _ready() -> void:
@@ -135,6 +209,10 @@ func _seed_from_template(include_name: bool) -> void:
 		equipped_accessory = null
 		# Same logic for inventory — a "new game" starts empty-handed.
 		inventory.clear()
+		# A fresh game also clears any pending level-up picks (otherwise
+		# Reset to Defaults in the sandbox would leave a "Level Up!"
+		# overlay queued from the previous run).
+		pending_level_ups.clear()
 	max_hp = t.max_hp
 	hp = t.max_hp
 	# max_mp is left in the Resource for legacy / future use but no
@@ -396,3 +474,152 @@ func get_inventory_count(item: Item) -> int:
 # text or a real list.
 func has_any_items() -> bool:
 	return not inventory.is_empty()
+
+
+# --- Leveling / XP helpers ---
+# Battles award XP via add_xp() on WIN. Each level-up applies the
+# LEVEL_UP_STAT_BOOSTS package immediately and queues a slot in
+# pending_level_ups so the post-WIN flow can show the bonus-pick
+# overlay (one screen per level gained).
+
+# XP threshold to advance from `from_level` to `from_level+1`. Linear:
+# 100 * from_level. So level 1 → 2 needs 100, level 2 → 3 needs 200, etc.
+func xp_to_next_level(from_level: int) -> int:
+	return XP_PER_LEVEL * maxi(from_level, 1)
+
+
+# Returns the notional total XP this Hero has "earned" given their
+# current level and xp-toward-next: the sum of every threshold for
+# levels 1..level-1 plus the current xp. Used by the sandbox's
+# "Current XP" readout so the display stays coherent with manual
+# edits to `level` / `xp` — both fields contribute and the math
+# always reflects "how much XP a normal player would have to earn
+# to reach exactly this state."
+#
+# Because the curve is linear (XP_PER_LEVEL * L), the cumulative sum
+# closes to XP_PER_LEVEL * (level-1) * level / 2 — no loop needed.
+func get_total_xp_for_curve() -> int:
+	var prior_levels: int = maxi(level - 1, 0)
+	# Closed-form sum: XP_PER_LEVEL * (1 + 2 + ... + prior_levels)
+	#                = XP_PER_LEVEL * prior_levels * (prior_levels+1) / 2
+	var sum_thresholds: int = XP_PER_LEVEL * prior_levels * (prior_levels + 1) / 2
+	return sum_thresholds + xp
+
+
+# Adds XP and processes any level-ups triggered. Auto-boosts apply
+# right away; bonus picks get queued in pending_level_ups for the
+# overlay to drain.
+#
+# Returns a summary dict the caller can use to drive UI:
+#   xp_gained:     int — the amount added (= `amount`, for symmetry)
+#   levels_gained: int — how many level-ups fired
+#   old_level:     int — level before this call
+#   new_level:     int — level after this call
+#   boosts_total:  Dictionary — summed auto-boosts across all levels
+#                              gained (e.g. a 2-level jump shows +6
+#                              max_hp / +2 attack rather than +3 / +1).
+func add_xp(amount: int) -> Dictionary:
+	var summary: Dictionary = {
+		"xp_gained": amount,
+		"levels_gained": 0,
+		"old_level": level,
+		"new_level": level,
+		"boosts_total": {},
+	}
+	if amount <= 0:
+		return summary
+	xp += amount
+	# Drain XP into level-ups while we have enough for the next tier.
+	# Each iteration pays the cost for the level we're CURRENTLY at
+	# (which depends on `level`, so it shifts each loop).
+	while xp >= xp_to_next_level(level):
+		xp -= xp_to_next_level(level)
+		var old_level: int = level
+		level += 1
+		var per_level: Dictionary = _apply_auto_boosts()
+		# Accumulate per-stat totals into the summary so a multi-level
+		# message can show the combined boost.
+		for k in per_level:
+			var prev: int = int(summary["boosts_total"].get(k, 0))
+			summary["boosts_total"][k] = prev + int(per_level[k])
+		# Queue this level's bonus-pick slot. The overlay drains the
+		# queue one entry per confirm.
+		pending_level_ups.append(old_level)
+		summary["levels_gained"] = int(summary["levels_gained"]) + 1
+		leveled_up.emit(level, per_level)
+	summary["new_level"] = level
+	stats_changed.emit()
+	return summary
+
+
+# Returns the boost dict that applies when arriving at `new_level`.
+# Looks up the per-level override table first; falls back to the
+# default package when no override exists for that level. The returned
+# dict is a fresh copy so callers can iterate without worrying about
+# polluting the const tables.
+func get_boosts_for_level(new_level: int) -> Dictionary:
+	if LEVEL_UP_STAT_BOOSTS.has(new_level):
+		return (LEVEL_UP_STAT_BOOSTS[new_level] as Dictionary).duplicate()
+	return _DEFAULT_LEVEL_BOOSTS.duplicate()
+
+
+# Internal: applies the boost package for the level we just reached
+# (read off the now-updated `level` field — _apply_auto_boosts is
+# called AFTER `level += 1` in add_xp's loop, so it sees the new
+# level) and restores HP/MP to full. Returns the boost dict so
+# callers can display what was applied.
+func _apply_auto_boosts() -> Dictionary:
+	var boosts: Dictionary = get_boosts_for_level(level)
+	var applied: Dictionary = {}
+	for stat_field in boosts:
+		var delta: int = int(boosts[stat_field])
+		set(stat_field, int(get(stat_field)) + delta)
+		applied[stat_field] = delta
+	# Full restore on level-up. Reads through the effective getters
+	# so any equipment bonuses to max HP/MP are honored.
+	hp = get_effective_max_hp()
+	mp = get_effective_max_mp()
+	return applied
+
+
+# Applies one level's worth of bonus picks. `picks` is keyed by stat
+# field name → number of picks allocated to that stat. The sum of the
+# values MUST equal BONUS_PICKS_PER_LEVEL — the overlay enforces this
+# before calling. Pops the front of pending_level_ups so subsequent
+# has_pending_level_ups() reflects what's left.
+func apply_bonus_picks(picks: Dictionary) -> void:
+	if pending_level_ups.is_empty():
+		push_warning("RPGState.apply_bonus_picks: no level-ups pending")
+		return
+	for stat_field in picks:
+		if not BONUS_PICK_STATS.has(stat_field):
+			push_warning("RPGState.apply_bonus_picks: '%s' isn't a valid bonus stat" % stat_field)
+			continue
+		var delta: int = int(picks[stat_field])
+		if delta <= 0:
+			continue
+		set(stat_field, int(get(stat_field)) + delta)
+	pending_level_ups.pop_front()
+	# Picks into max_hp grow the cap — top off current HP to match.
+	# (Auto-boosts already healed to full, but a later pick into max_hp
+	# would leave current HP below the new cap without this.)
+	if int(picks.get("max_hp", 0)) > 0:
+		hp = get_effective_max_hp()
+	# Same for intelligence → MP cap.
+	if int(picks.get("intelligence", 0)) > 0:
+		mp = get_effective_max_mp()
+	stats_changed.emit()
+
+
+# True if any level-ups are awaiting bonus-pick allocation. Battle.gd
+# checks this after WIN to decide whether to spawn the overlay.
+func has_pending_level_ups() -> bool:
+	return not pending_level_ups.is_empty()
+
+
+# Returns the NEW level for the next pending overlay (so the header
+# can read "LEVEL N-1 → LEVEL N"). Returns -1 when nothing's pending.
+func peek_pending_new_level() -> int:
+	if pending_level_ups.is_empty():
+		return -1
+	return int(pending_level_ups[0]) + 1

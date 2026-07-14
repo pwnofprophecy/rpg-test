@@ -155,6 +155,12 @@ var _available_spells: Array[Spell] = []
 # each new player turn.
 var _player_ticked_this_turn: bool = false
 
+# Guards the post-WIN dismiss path. The dismiss handler awaits the
+# level-up overlay loop, so subsequent clicks/Enter could re-enter the
+# WIN branch before the first call finishes. This flag flips true on
+# first dismiss and stays true until the battle scene tears down.
+var _win_dismiss_started: bool = false
+
 var current_state: BattleState  # Tracks which phase we're currently in
 
 # "@onready" means this gets assigned as soon as the scene is ready to use.
@@ -193,6 +199,12 @@ const MAGIC_DAMAGE_DEFAULT_COLOR: Color = Color(1.0, 0.4, 0.9)  # magenta
 # Folder we scan for spell templates at battle _ready. Drop a .tres in
 # here and it becomes castable next time a battle starts.
 const SPELLS_FOLDER: String = "res://resources/spells/"
+
+# Level-up overlay shown after WIN when one or more level-ups fired.
+# Preloaded by path so the script is callable without depending on the
+# class_name being registered (which only happens after a project reload
+# when the file is first created).
+const LEVEL_UP_OVERLAY_SCRIPT: GDScript = preload("res://scenes/rpg/level_up_overlay.gd")
 
 # --- Multi-enemy layout ---
 # Sprites lay out in a horizontal row centered on ENEMY_ROW_CENTER_X
@@ -707,7 +719,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match current_state:
 		BattleState.WIN:
+			# Guard against double-fire: the post-WIN flow awaits the
+			# level-up overlay loop, so a stray click during that loop
+			# could otherwise re-enter this branch. The first dismiss
+			# flips _win_dismiss_started and any subsequent dismiss is
+			# a no-op until the battle scene tears down.
+			if _win_dismiss_started:
+				return
+			_win_dismiss_started = true
 			get_viewport().set_input_as_handled()
+			# Run one overlay per pending level. _handle_post_win_level_ups
+			# awaits each overlay's `completed` signal so the battle scene
+			# stays alive (and the player sprite + victory jump stay on
+			# screen) underneath while picks are being made.
+			await _handle_post_win_level_ups()
 			_finish_battle_and_return()
 		BattleState.LOSE:
 			get_viewport().set_input_as_handled()
@@ -1898,8 +1923,32 @@ func _run_sub_menu() -> void:
 # of how many enemies were in the fight.
 func _run_win() -> void:
 	battle_ui.hide_menu()
-	battle_ui.set_message("Victory is yours!")
-	_play_victory_jump()	
+	# Tally XP from every defeated enemy in the roster. By WIN time all
+	# enemies are dead, so we sum across the whole _enemies list — each
+	# BattleEnemy keeps a reference to its source EnemyStats template
+	# which carries the xp_reward field.
+	var total_xp: int = 0
+	for be_var in _enemies:
+		var be: BattleEnemy = be_var
+		if be.stats != null:
+			total_xp += be.stats.xp_reward
+	# Award the XP. RPGState handles level-up math, applies auto-boosts,
+	# and queues pending bonus picks for the overlay to drain. The
+	# returned summary tells us whether to mention level-ups in the
+	# victory message; the overlay itself runs after dismiss.
+	var summary: Dictionary = RPGState.add_xp(total_xp)
+	var msg: String = "Victory is yours!"
+	if total_xp > 0:
+		msg += "  +%d XP" % total_xp
+	var levels_gained: int = int(summary["levels_gained"])
+	if levels_gained > 0:
+		msg += "\nLevel Up!  →  Level %d" % int(summary["new_level"])
+		if levels_gained > 1:
+			# Multi-level: surface the count so the player knows to expect
+			# multiple overlays. ("Level Up! ×2 → Level 5")
+			msg = msg.replace("Level Up!", "Level Up! ×%d" % levels_gained)
+	battle_ui.set_message(msg)
+	_play_victory_jump()
 
 
 # Battle is over — player loses. Shows the death message and waits for
@@ -2207,3 +2256,17 @@ func _finish_battle_and_return() -> void:
 		GameManager.switch_to_world(GameManager.World.COMBAT_SANDBOX)
 	else:
 		GameManager.switch_rpg_location(GameManager.rpg_battle_return_location)
+
+
+# Drains RPGState's pending-level-up queue by showing one LevelUpOverlay
+# per pending level. The overlay handles its own UI + RPGState mutation
+# (bonus-pick allocation); we just instantiate, parent, and await
+# completion. Multi-level-up jumps spawn one overlay per level so each
+# level's picks are made separately (clearer than a combined screen).
+func _handle_post_win_level_ups() -> void:
+	while RPGState.has_pending_level_ups():
+		# Explicit LevelUpOverlay type — GDScript.new() returns Variant,
+		# and inferring from Variant trips the "warnings as errors" guard.
+		var overlay: LevelUpOverlay = LEVEL_UP_OVERLAY_SCRIPT.new()
+		add_child(overlay)
+		await overlay.completed

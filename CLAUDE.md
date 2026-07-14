@@ -350,6 +350,39 @@ The Hero has three equipment slots: **Weapon**, **Armor**, **Accessory**. Each h
 
 **Adding a new slot type** (e.g. HELMET): add an enum entry to `Equipment.Slot`, a slot field to `RPGState`, match arms in `equip`/`unequip`/`get_equipped`, and an entry in `combat_sandbox.gd`'s `_EQUIPMENT_SLOTS` array.
 
+## Leveling / XP
+The Hero gains XP from defeating enemies and levels up automatically once the XP threshold is met. All math lives on `RPGState`; the battle scene drives the post-WIN flow and spawns a modal overlay for bonus stat picks.
+
+**XP curve**: linear. `xp_to_next_level(L) = XP_PER_LEVEL * L` where `XP_PER_LEVEL = 100`. So level 1→2 costs 100, level 2→3 costs 200, level 3→4 costs 300, etc. Single constant on `RPGState` tunes the whole curve.
+
+**Per-level automatic boosts**: two constants on `RPGState` drive the auto-boost lookup. `_DEFAULT_LEVEL_BOOSTS` is the baseline package every "ordinary" level uses — currently `+3 max_hp, +1 attack, +1 defense, +1 speed, +1 intelligence`. `LEVEL_UP_STAT_BOOSTS` is a per-level override table keyed by the NEW level reached (e.g. `5: {max_hp: 5, attack: 2, ...}`) — populate it only with milestone levels that need a different package, ordinary levels fall through to the default. `get_boosts_for_level(new_level)` does the lookup-with-fallback. Field names match RPGState properties so `_apply_auto_boosts()` can use generic `set()`/`get()`. `luck` is intentionally absent from both (only growable via bonus picks). `max_mp` is also absent — it's derived from intelligence via `MP_PER_INT_LEVEL`, so +1 INT silently grows the MP cap by 2. Level-up also restores HP and MP to full (classic JRPG perk). The LevelUpOverlay's "Automatic boosts:" list reads through `get_boosts_for_level()` so it always shows the package for the level actually being processed.
+
+**Bonus picks**: `BONUS_PICKS_PER_LEVEL = 2` per level. The player allocates picks to any combination of the six stats in `BONUS_PICK_STATS` (`max_hp, attack, defense, speed, intelligence, luck`). Picks can stack on a single stat — e.g. both into Attack for +2.
+
+**Multi-level-ups**: a big-XP kill that jumps multiple levels accumulates one entry per level in `RPGState.pending_level_ups` (each entry is the OLD level). The battle scene loops `while RPGState.has_pending_level_ups()`, spawning one `LevelUpOverlay` per pending entry — so the player sees one bonus-pick screen per gained level (clear separation rather than a combined mega-screen).
+
+**Flow on battle WIN**:
+1. `battle.gd::_run_win()` sums `xp_reward` across all enemies in `_enemies` (each `BattleEnemy` keeps its source `EnemyStats`).
+2. Calls `RPGState.add_xp(total)`. RPGState mutates `xp` / `level`, applies auto-boosts, queues `pending_level_ups`.
+3. Victory text becomes `"Victory is yours!  +N XP\nLevel Up! → Level M"` (with `×K` suffix for multi-level).
+4. Player dismisses → `_handle_post_win_level_ups()` runs the overlay loop (`await overlay.completed` per entry).
+5. `_finish_battle_and_return()` fires once all overlays clear.
+
+A `_win_dismiss_started` flag on `battle.gd` guards the dismiss path against re-entry while the overlay loop awaits.
+
+**The overlay** (`scenes/rpg/level_up_overlay.gd`): a `class_name LevelUpOverlay extends CanvasLayer`, built entirely programmatically in `_ready()` — no `.tscn`. Centered panel over a dimmer; shows header, auto-boost list, six stat buttons, picks-remaining footer, Reset/Confirm. Confirm is disabled until exactly `BONUS_PICKS_PER_LEVEL` picks are allocated. On Confirm it calls `RPGState.apply_bonus_picks(picks)` (which pops the queue head) and emits `completed`. Battle.gd awaits that signal to drive the loop.
+
+**Tuning levers** (all in `autoloads/rpg_state.gd`):
+- `XP_PER_LEVEL` — scales the entire XP curve.
+- `_DEFAULT_LEVEL_BOOSTS` — change the baseline per-level package (keys are RPGState field names).
+- `LEVEL_UP_STAT_BOOSTS` — per-level overrides keyed by NEW level (e.g. `5: {...}`). Empty by default; populate just the milestone levels you want to feel special.
+- `BONUS_PICK_STATS` — which stats can receive bonus picks.
+- `BONUS_PICKS_PER_LEVEL` — picks per level. Multi-level math still works for any value ≥ 1.
+
+**Per-enemy XP**: set `xp_reward` on each `EnemyStats` `.tres` in the Inspector. Default is 0 — bump it on enemies you want to grant progress (placeholder defaults zero out everything except slime/goblin baselines, which you'll want to tune for the actual encounter rate).
+
+**`SaveSystem` later**: `level`, `xp`, and `pending_level_ups` are all on RPGState so they'll serialize alongside the rest of the runtime state when SaveSystem goes live.
+
 ## Damage Types (groundwork)
 Plumbing for an upcoming damage-type mod (resistances, weaknesses, immunities). No gameplay effect yet — the fields just need to be assignable so every weapon and spell can be tagged at authoring time.
 

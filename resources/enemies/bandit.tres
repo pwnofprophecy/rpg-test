@@ -10,5 +10,5 @@ defense = 3
 speed = 6
 intelligence = 4
 luck = 4
-xp_reward = 10
+xp_reward = 100
 gold_reward = 6
