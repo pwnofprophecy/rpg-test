@@ -197,6 +197,30 @@ func _ready() -> void:
 		label.mouse_entered.connect(_on_menu_label_hovered.bind(i))
 		label.gui_input.connect(_on_menu_label_input.bind(i))
 
+		# Underline strip — anchored to the bottom-left of the label.
+		# Hidden by default; _update_cursor positions it (matching the
+		# text width) and shows it on the currently-selected row.
+		var underline := ColorRect.new()
+		underline.color = _MENU_SELECTED_COLOR
+		underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		underline.visible = false
+		# Anchor both vertical sides to the bottom edge — offsets then
+		# place the strip a couple pixels above the bottom with a 1px
+		# height. (anchor_top/bottom = 1 means "both pinned to bottom".)
+		underline.anchor_top = 1.0
+		underline.anchor_bottom = 1.0
+		underline.offset_top = -(_MENU_UNDERLINE_OFFSET + _MENU_UNDERLINE_HEIGHT)
+		underline.offset_bottom = -_MENU_UNDERLINE_OFFSET
+		label.add_child(underline)
+		_menu_underlines.append(underline)
+		# Re-position the underline whenever the label's true size is
+		# known. The first time show_menu() runs, _update_cursor fires
+		# BEFORE the VBoxContainer has had a layout pass, so label.size.x
+		# is still 0 and the centered/right-aligned math gives a wrong
+		# left offset. The resized signal fires once layout completes
+		# (and again on any future relayout), at which point we recompute.
+		label.resized.connect(_on_menu_label_resized.bind(i))
+
 	# Make non-interactive UI panels transparent to mouse clicks so
 	# left-clicks fall through to battle.gd's _unhandled_input for
 	# dismissing end-of-battle text ("GOBLIN was defeated!", "HERO has
@@ -431,6 +455,17 @@ const _MENU_CORNER_RADIUS: int = 4
 var _menu_selected_stylebox: StyleBox = null
 var _menu_normal_stylebox: StyleBox = null
 
+# Thin underline strip per menu row. Built in _ready as a child of each
+# Label and sized/positioned in _update_cursor (visible only on the
+# selected row, with its width matched to the text it sits under).
+# Parallel to menu_labels.
+var _menu_underlines: Array[ColorRect] = []
+# Height of the underline bar, in pixels.
+const _MENU_UNDERLINE_HEIGHT: int = 2
+# How far above the label's bottom edge the underline sits. Bumps it up
+# a touch so it doesn't kiss the stylebox bottom border.
+const _MENU_UNDERLINE_OFFSET: int = 5
+
 
 # Constructs the row stylebox used to give each menu item its button-
 # like backplate. `selected` true → translucent gold fill; false → fully
@@ -466,11 +501,59 @@ func _update_cursor() -> void:
 			menu_labels[i].add_theme_color_override("font_color", color)
 			menu_labels[i].add_theme_stylebox_override("normal", sb)
 			menu_labels[i].visible = true
+			_update_menu_underline(i, is_selected)
 		else:
 			# Leftover slot (e.g. Run when RUN.EXE is inactive) — hide it
 			# so the list shows only the available commands.
 			menu_labels[i].text = ""
 			menu_labels[i].visible = false
+			_menu_underlines[i].visible = false
+
+
+# Fires when a menu label finishes a layout pass and its size is now
+# accurate. We only need to refresh THIS row's underline — and only if
+# it's the selected one (off rows are already hidden). The bound `i`
+# tells us which row resized.
+func _on_menu_label_resized(i: int) -> void:
+	_update_menu_underline(i, i == cursor_index)
+
+
+# Positions and shows/hides the per-row underline strip. On the selected
+# row, the strip's width is matched to the rendered text width so it
+# sits under just the letters (not the full row); off rows hide it.
+# Sized lazily here rather than in _ready because the rendered text
+# changes (mod gating compacts the list, so what's in slot i depends
+# on which actions are active this turn).
+func _update_menu_underline(i: int, is_selected: bool) -> void:
+	var underline: ColorRect = _menu_underlines[i]
+	if not is_selected:
+		underline.visible = false
+		return
+	var label: Label = menu_labels[i]
+	var font: Font = label.get_theme_default_font()
+	var font_size: int = label.get_theme_font_size("font_size")
+	var text_w: float = font.get_string_size(
+		label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	# Place the underline under wherever the text actually sits, which
+	# depends on the label's horizontal_alignment. The stylebox's left
+	# and right content margins define the inner area the text is laid
+	# out in; we compute the text's left edge inside that area based on
+	# the alignment, then size the underline to match the text width.
+	var label_w: float = label.size.x
+	var inner_left: float = float(_MENU_PAD_X)
+	var inner_right: float = label_w - float(_MENU_PAD_X)
+	var text_left: float
+	match label.horizontal_alignment:
+		HORIZONTAL_ALIGNMENT_CENTER:
+			text_left = (label_w - text_w) * 0.5
+		HORIZONTAL_ALIGNMENT_RIGHT:
+			text_left = inner_right - text_w
+		_:
+			# LEFT and FILL both lay out from the inner-left edge.
+			text_left = inner_left
+	underline.offset_left = text_left
+	underline.offset_right = text_left + text_w
+	underline.visible = true
 
 
 # Updates the text displayed in the bottom text box.
